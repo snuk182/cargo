@@ -1,4 +1,4 @@
-#![cfg_attr(test, deny(warnings))]
+//#![cfg_attr(test, deny(warnings))] //TODO remove
 
 // Clippy isn't enforced by CI, and know that @alexcrichton isn't a fan :)
 #![cfg_attr(feature = "cargo-clippy", allow(boxed_local))]             // bug rust-lang-nursery/rust-clippy#1123

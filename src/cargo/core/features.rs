@@ -49,10 +49,14 @@ use std::cell::Cell;
 use std::env;
 use std::fmt;
 use std::str::FromStr;
+use std::cmp::{PartialOrd, Ord, PartialEq, Ordering};
+use std::hash::{Hasher, Hash};
 
 use failure::Error;
 
 use util::errors::CargoResult;
+use util::Platform;
+use core::interning::InternedString;
 
 /// The edition of the compiler (RFC 2052)
 #[derive(Clone, Copy, Debug, Hash, PartialOrd, Ord, Eq, PartialEq, Serialize, Deserialize)]
@@ -91,6 +95,46 @@ enum Status {
     Unstable,
 }
 
+/*
+#[derive(Debug, Clone, Serialize)]
+pub struct PlatformFeature {
+	value: InternedString,
+	platform: Option<Platform>,
+}
+
+impl PlatformFeature {
+	pub fn new(value: InternedString, platform: Option<Platform>) -> Self {
+		PlatformFeature { value, platform }
+	}
+	pub fn value(&self) -> InternedString {
+		self.value
+	}
+	pub fn platform(&self) -> Option<&Platform> {
+		self.platform.as_ref()
+	}
+}
+impl Hash for PlatformFeature {
+	fn hash<H: Hasher>(&self, state: &mut H) {
+		self.value.hash(state)
+	}
+}
+impl PartialEq for PlatformFeature {
+	fn eq(&self, other: &Self) -> bool {
+		self.value.eq(&other.value)
+	}
+}
+impl PartialOrd for PlatformFeature {
+	fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+		self.value.partial_cmp(&other.value)
+	}
+}
+impl Eq for PlatformFeature {}
+impl Ord for PlatformFeature {
+	fn cmp(&self, other: &Self) -> Ordering {
+		self.value.cmp(&other.value)
+	}
+}
+*/
 macro_rules! features {
     (
         pub struct Features {

@@ -390,16 +390,16 @@ impl<'r> Requirements<'r> {
             .summary
             .features()
             .get(feat.as_str())
-            .expect("must be a valid feature")
+            .expect("must be a valid feature").1.as_slice() // TODO
         {
-            match *fv {
+            match fv {
                 FeatureValue::Feature(ref dep_feat) if **dep_feat == *feat => bail!(
                     "Cyclic feature dependency: feature `{}` depends on itself",
                     feat
                 ),
                 _ => {}
             }
-            self.require_value(fv)?;
+            self.require_value(&fv)?;
         }
         Ok(())
     }
