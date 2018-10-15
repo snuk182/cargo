@@ -1,5 +1,5 @@
 pub use self::dependency::Dependency;
-pub use self::features::{CliUnstable, Edition, Feature, Features};
+pub use self::features::{CliUnstable, Edition, Feature, Features, PlatformFeature};
 pub use self::features::{
     maybe_allow_nightly_features,
     enable_nightly_features,

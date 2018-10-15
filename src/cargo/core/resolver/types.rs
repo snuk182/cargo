@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use core::interning::InternedString;
 use core::{Dependency, PackageId, PackageIdSpec, Registry, Summary};
-use util::{CargoError, CargoResult, Config};
+use util::{CargoError, CargoResult, Config, Platform};
 
 pub struct ResolverProgress {
     ticks: u16,
@@ -227,21 +227,21 @@ pub enum Method<'a> {
     Everything, // equivalent to Required { dev_deps: true, all_features: true, .. }
     Required {
         dev_deps: bool,
-        features: &'a [InternedString],
+        features: &'a [(InternedString, Option<Platform>)],
         all_features: bool,
         uses_default_features: bool,
     },
 }
 
 impl<'r> Method<'r> {
-    pub fn split_features(features: &[String]) -> Vec<InternedString> {
+    pub fn split_features(features: &[(String, Option<Platform>)]) -> Vec<(InternedString, Option<Platform>)> {
         features
             .iter()
-            .flat_map(|s| s.split_whitespace())
-            .flat_map(|s| s.split(','))
-            .filter(|s| !s.is_empty())
-            .map(|s| InternedString::new(s))
-            .collect::<Vec<InternedString>>()
+            .flat_map(|(f, p)| f.split_whitespace().map(move |f| (f, p.clone())))
+            .flat_map(|(f, p)| f.split_whitespace().map(move |f| (f, p.clone())))
+            .filter(|(f,_)| !f.is_empty())
+            .map(|(f, p)| (InternedString::new(f), p))
+            .collect()  
     }
 }
 
@@ -346,7 +346,7 @@ impl RemainingDeps {
 // Information about the dependencies for a crate, a tuple of:
 //
 // (dependency info, candidates, features activated)
-pub type DepInfo = (Dependency, Rc<Vec<Candidate>>, Rc<Vec<InternedString>>);
+pub type DepInfo = (Dependency, Rc<Vec<Candidate>>, Rc<Vec<(InternedString, Option<Platform>)>>);
 
 pub type ActivateResult<T> = Result<T, ActivateError>;
 

@@ -5,12 +5,12 @@ use serde::ser;
 use core::resolver::Resolve;
 use core::{Package, PackageId, Workspace};
 use ops::{self, Packages};
-use util::CargoResult;
+use util::{Platform, CargoResult};
 
 const VERSION: u32 = 1;
 
 pub struct OutputMetadataOptions {
-    pub features: Vec<String>,
+    pub features: Vec<(String, Option<Platform>)>,
     pub no_default_features: bool,
     pub all_features: bool,
     pub no_deps: bool,
@@ -128,6 +128,6 @@ where
                     Dep { name, pkg }
                 })
                 .collect(),
-            features: resolve.features_sorted(id),
+            features: resolve.features_sorted(id).keys().map(|k| *k).collect(),
         }))
 }

@@ -276,7 +276,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                     .or_insert_with(|| {
                         feats
                             .iter()
-                            .map(|feat| format!("feature=\"{}\"", feat))
+                            .map(|feat| format!("feature=\"{}\"", feat.0))
                             .collect()
                     });
             }

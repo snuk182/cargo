@@ -4,7 +4,7 @@ use std::rc::Rc;
 use core::interning::InternedString;
 use core::{Dependency, FeatureValue, PackageId, SourceId, Summary};
 use util::CargoResult;
-use util::Graph;
+use util::{Platform, Graph};
 
 use super::types::RegistryQueryer;
 use super::types::{ActivateResult, ConflictReason, DepInfo, GraphNode, Method, RcList};
@@ -23,7 +23,7 @@ pub struct Context {
     //       switch to persistent hash maps if we can at some point or otherwise
     //       make these much cheaper to clone in general.
     pub activations: Activations,
-    pub resolve_features: HashMap<PackageId, Rc<HashSet<InternedString>>>,
+    pub resolve_features: HashMap<PackageId, Rc<HashMap<InternedString, Option<Platform>>>>,
     pub links: HashMap<InternedString, PackageId>,
 
     // These are two cheaply-cloneable lists (O(1) clone) which are effectively
@@ -88,8 +88,8 @@ impl Context {
         let has_default_feature = summary.features().contains_key("default");
         Ok(match self.resolve_features.get(id) {
             Some(prev) => {
-                features.iter().all(|f| prev.contains(f))
-                    && (!use_default || prev.contains("default") || !has_default_feature)
+                features.iter().all(|f| prev.contains_key(&f.0))
+                    && (!use_default || prev.contains_key("default") || !has_default_feature)
             }
             None => features.is_empty() && (!use_default || !has_default_feature),
         })
@@ -159,7 +159,7 @@ impl Context {
         parent: Option<&Summary>,
         s: &'b Summary,
         method: &'b Method,
-    ) -> ActivateResult<Vec<(Dependency, Vec<InternedString>)>> {
+    ) -> ActivateResult<Vec<(Dependency, Vec<(InternedString, Option<Platform>)>)>> {
         let dev_deps = match *method {
             Method::Everything => true,
             Method::Required { dev_deps, .. } => dev_deps,
@@ -210,7 +210,8 @@ impl Context {
                     );
                 }
             }
-            ret.push((dep.clone(), base));
+            // TODO danger => dep platform is copied to the feature platform! 
+            ret.push((dep.clone(), base.into_iter().map(|f| (f, dep.platform().map(|p| p.clone()))).collect()));
         }
 
         // Any entries in `reqs.dep` which weren't used are bugs in that the
@@ -245,11 +246,11 @@ impl Context {
             let set = Rc::make_mut(
                 self.resolve_features
                     .entry(pkgid.clone())
-                    .or_insert_with(|| Rc::new(HashSet::new())),
+                    .or_insert_with(|| Rc::new(HashMap::new())),
             );
 
-            for feature in reqs.used {
-                set.insert(feature);
+            for (k, v) in reqs.used {
+                set.insert(k, v);
             }
         }
 
@@ -297,8 +298,8 @@ fn build_requirements<'a, 'b: 'a>(
         | Method::Required {
             all_features: true, ..
         } => {
-            for key in s.features().keys() {
-                reqs.require_feature(*key)?;
+            for (key, (platform, _)) in s.features().iter() {
+                reqs.require_feature(*key, platform.clone())?;
             }
             for dep in s.dependencies().iter().filter(|d| d.is_optional()) {
                 reqs.require_dependency(dep.name_in_toml());
@@ -309,8 +310,8 @@ fn build_requirements<'a, 'b: 'a>(
             features: requested,
             ..
         } => {
-            for &f in requested.iter() {
-                reqs.require_value(&FeatureValue::new(f, s))?;
+            for item in requested.iter() {
+                reqs.require_value(&FeatureValue::new(item.0, s), item.1.clone())?;
             }
         }
     }
@@ -320,8 +321,8 @@ fn build_requirements<'a, 'b: 'a>(
             uses_default_features: true,
             ..
         } => {
-            if s.features().contains_key("default") {
-                reqs.require_feature(InternedString::new("default"))?;
+            if let Some((platform,_)) = s.features().get("default") {
+                reqs.require_feature(InternedString::new("default"), platform.clone())?;
             }
         }
         Method::Required {
@@ -343,8 +344,8 @@ struct Requirements<'a> {
     // The used features set is the set of features which this local package had
     // enabled, which is later used when compiling to instruct the code what
     // features were enabled.
-    used: HashSet<InternedString>,
-    visited: HashSet<InternedString>,
+    used: HashMap<InternedString, Option<Platform>>,
+    visited: HashMap<InternedString, Option<Platform>>,
 }
 
 impl<'r> Requirements<'r> {
@@ -352,13 +353,13 @@ impl<'r> Requirements<'r> {
         Requirements {
             summary,
             deps: HashMap::new(),
-            used: HashSet::new(),
-            visited: HashSet::new(),
+            used: HashMap::new(),
+            visited: HashMap::new(),
         }
     }
 
-    fn require_crate_feature(&mut self, package: InternedString, feat: InternedString) {
-        self.used.insert(package);
+    fn require_crate_feature(&mut self, package: InternedString, feat: InternedString, platform: Option<Platform>) {
+        self.used.insert(package, platform);
         self.deps
             .entry(package)
             .or_insert((false, Vec::new()))
@@ -367,8 +368,8 @@ impl<'r> Requirements<'r> {
     }
 
     fn seen(&mut self, feat: InternedString) -> bool {
-        if self.visited.insert(feat) {
-            self.used.insert(feat);
+        if let Some(pl) = self.visited.get(&feat) {
+            self.used.insert(feat, pl.clone());
             false
         } else {
             true
@@ -382,7 +383,7 @@ impl<'r> Requirements<'r> {
         self.deps.entry(pkg).or_insert((false, Vec::new())).0 = true;
     }
 
-    fn require_feature(&mut self, feat: InternedString) -> CargoResult<()> {
+    fn require_feature(&mut self, feat: InternedString, platform: Option<Platform>) -> CargoResult<()> {
         if feat.is_empty() || self.seen(feat) {
             return Ok(());
         }
@@ -399,17 +400,17 @@ impl<'r> Requirements<'r> {
                 ),
                 _ => {}
             }
-            self.require_value(&fv)?;
+            self.require_value(&fv, platform.clone())?;
         }
         Ok(())
     }
 
-    fn require_value<'f>(&mut self, fv: &'f FeatureValue) -> CargoResult<()> {
+    fn require_value<'f>(&mut self, fv: &'f FeatureValue, platform: Option<Platform>) -> CargoResult<()> {
         match fv {
-            FeatureValue::Feature(feat) => self.require_feature(*feat)?,
+            FeatureValue::Feature(feat) => self.require_feature(*feat, platform)?,
             FeatureValue::Crate(dep) => self.require_dependency(*dep),
             FeatureValue::CrateFeature(dep, dep_feat) => {
-                self.require_crate_feature(*dep, *dep_feat)
+                self.require_crate_feature(*dep, *dep_feat, platform)
             }
         };
         Ok(())

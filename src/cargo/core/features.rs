@@ -95,7 +95,6 @@ enum Status {
     Unstable,
 }
 
-/*
 #[derive(Debug, Clone, Serialize)]
 pub struct PlatformFeature {
 	value: InternedString,
@@ -128,13 +127,13 @@ impl PartialOrd for PlatformFeature {
 		self.value.partial_cmp(&other.value)
 	}
 }
-impl Eq for PlatformFeature {}
 impl Ord for PlatformFeature {
 	fn cmp(&self, other: &Self) -> Ordering {
 		self.value.cmp(&other.value)
 	}
 }
-*/
+impl Eq for PlatformFeature {}
+
 macro_rules! features {
     (
         pub struct Features {
