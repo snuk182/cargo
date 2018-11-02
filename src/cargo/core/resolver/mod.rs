@@ -61,6 +61,7 @@ use util::config::Config;
 use util::errors::{CargoError, CargoResult};
 use util::lev_distance::lev_distance;
 use util::profile;
+use util::Platform;
 
 use self::context::{Activations, Context};
 use self::types::{ActivateError, ActivateResult, Candidate, ConflictReason, DepsFrame, GraphNode};
@@ -133,7 +134,7 @@ pub fn resolve(
         cx.resolve_replacements(),
         cx.resolve_features
             .iter()
-            .map(|(k, v)| (k.clone(), v.iter().map(|x| x.to_string()).collect()))
+            .map(|(k, v)| (k.clone(), v.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()))
             .collect(),
         cksums,
         BTreeMap::new(),
@@ -634,7 +635,7 @@ struct BacktrackFrame {
     remaining_candidates: RemainingCandidates,
     parent: Summary,
     dep: Dependency,
-    features: Rc<Vec<InternedString>>,
+    features: Rc<Vec<(InternedString, Option<Platform>)>>,
     conflicting_activations: HashMap<PackageId, ConflictReason>,
 }
 

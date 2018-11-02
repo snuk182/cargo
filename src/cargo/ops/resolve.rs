@@ -7,6 +7,7 @@ use ops;
 use sources::PathSource;
 use util::errors::{CargoResult, CargoResultExt};
 use util::profile;
+use util::Platform;
 
 /// Resolve all dependencies for the workspace using the previous
 /// lockfile as a guide if present.
@@ -25,7 +26,7 @@ pub fn resolve_ws<'a>(ws: &Workspace<'a>) -> CargoResult<(PackageSet<'a>, Resolv
 pub fn resolve_ws_precisely<'a>(
     ws: &Workspace<'a>,
     source: Option<Box<Source + 'a>>,
-    features: &[String],
+    features: &[(String, Option<Platform>)],
     all_features: bool,
     no_default_features: bool,
     specs: &[PackageIdSpec],

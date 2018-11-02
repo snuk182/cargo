@@ -298,7 +298,7 @@ pub trait ArgMatchesExt {
         let opts = CompileOptions {
             config,
             build_config,
-            features: self._values_of("features"),
+            features: self._values_of("features").into_iter().map(|f| (f, None)).collect(),
             all_features: self._is_present("all-features"),
             no_default_features: self._is_present("no-default-features"),
             spec,

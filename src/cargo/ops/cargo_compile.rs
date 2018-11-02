@@ -34,7 +34,7 @@ use core::{Package, Source, Target};
 use core::{PackageId, PackageIdSpec, TargetKind, Workspace};
 use ops;
 use util::config::Config;
-use util::{lev_distance, profile, CargoResult};
+use util::{lev_distance, profile, CargoResult, Platform};
 
 /// Contains information about how a package should be compiled.
 #[derive(Debug)]
@@ -43,7 +43,7 @@ pub struct CompileOptions<'a> {
     /// Configuration information for a rustc build
     pub build_config: BuildConfig,
     /// Extra features to build for the root package
-    pub features: Vec<String>,
+    pub features: Vec<(String, Option<Platform>)>,
     /// Flag whether all available features should be built for the root package
     pub all_features: bool,
     /// Flag if the default feature should be built for the root package
@@ -687,7 +687,7 @@ fn generate_targets<'a>(
                 let features = features_map
                     .entry(pkg)
                     .or_insert_with(|| resolve_all_features(resolve, pkg.package_id()));
-                rf.iter().filter(|f| !features.contains(*f)).collect()
+                rf.iter().filter(|f| !features.contains_key(*f)).collect()
             }
             None => Vec::new(),
         };
@@ -717,14 +717,14 @@ fn generate_targets<'a>(
 fn resolve_all_features(
     resolve_with_overrides: &Resolve,
     package_id: &PackageId,
-) -> HashSet<String> {
+) -> HashMap<String, Option<Platform>> {
     let mut features = resolve_with_overrides.features(package_id).clone();
 
     // Include features enabled for use by dependencies so targets can also use them with the
     // required-features field when deciding whether to be built or skipped.
-    for (dep, _) in resolve_with_overrides.deps(package_id) {
-        for feature in resolve_with_overrides.features(dep) {
-            features.insert(dep.name().to_string() + "/" + feature);
+    for (dep,_) in resolve_with_overrides.deps(package_id) {
+        for (name, platform) in resolve_with_overrides.features(dep) {
+            features.insert(dep.name().to_string() + "/" + name, platform.clone());
         }
     }
 
