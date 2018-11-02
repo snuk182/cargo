@@ -927,7 +927,7 @@ impl TomlManifest {
                 .as_ref()
                 .or_else(|| me.build_dependencies2.as_ref());
             process_dependencies(&mut cx, build_deps, Some(Kind::Build))?;
-			process_features(&mut ftrs, me.features.as_ref(), None);
+			process_features(&mut ftrs, me.features.as_ref(), None)?;
 
             for (name, platform) in me.target.iter().flat_map(|t| t) {
                 cx.platform = Some(name.parse()?);
@@ -942,7 +942,7 @@ impl TomlManifest {
                     .as_ref()
                     .or_else(|| platform.dev_dependencies2.as_ref());
                 process_dependencies(&mut cx, dev_deps, Some(Kind::Development))?;
-                process_features(&mut ftrs, platform.features.as_ref(), cx.platform.clone());
+                process_features(&mut ftrs, platform.features.as_ref(), cx.platform.clone())?;
             }
 
             replace = me.replace(&mut cx)?;
