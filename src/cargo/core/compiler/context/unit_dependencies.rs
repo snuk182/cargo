@@ -151,13 +151,13 @@ fn compute_deps<'a, 'cfg, 'tmp>(
                 // If the dependency is optional, then we're only activating it
                 // if the corresponding feature was activated
                 if dep.is_optional() {
-                	if let Some(platform) = bcx.resolve.features(id).get(&*dep.name_in_toml()) {
-                		if !bcx.platform_activated(platform.as_ref(), unit.kind) {
-                			return false;
-                		}
-                	} else {
-                		return false;
-                	}                    
+                    if let Some(platform) = bcx.resolve.features(id).get(&*dep.name_in_toml()) {
+                        if !bcx.platform_activated(platform.as_ref(), unit.kind) {
+                            return false;
+                        }
+                    } else {
+                        return false;
+                    }                    
                 }
 
                 // If we've gotten past all that, then this dependency is

@@ -367,31 +367,31 @@ impl<'r> Requirements<'r> {
             .push(feat);
     }
 
-    fn seen(&mut self, feat: InternedString) -> bool {
-        if let Some(pl) = self.visited.get(&feat) {
-            self.used.insert(feat, pl.clone());
-            false
-        } else {
+    fn seen(&mut self, feat: InternedString, platform: Option<Platform>) -> bool {
+        if let Some(_) = self.visited.get(&feat) {// TODO check platform misfit?
             true
+        } else {
+            self.used.insert(feat, platform);
+            false
         }
     }
 
     fn require_dependency(&mut self, pkg: InternedString) {
-        if self.seen(pkg) {
+        if self.seen(pkg, None) { // TODO really None?
             return;
         }
         self.deps.entry(pkg).or_insert((false, Vec::new())).0 = true;
     }
 
     fn require_feature(&mut self, feat: InternedString, platform: Option<Platform>) -> CargoResult<()> {
-        if feat.is_empty() || self.seen(feat) {
+        if feat.is_empty() || self.seen(feat, platform.clone()) {
             return Ok(());
         }
         for fv in self
             .summary
             .features()
             .get(feat.as_str())
-            .expect("must be a valid feature").1.as_slice() // TODO
+            .expect("must be a valid feature").1.as_slice()
         {
             match fv {
                 FeatureValue::Feature(ref dep_feat) if **dep_feat == *feat => bail!(
