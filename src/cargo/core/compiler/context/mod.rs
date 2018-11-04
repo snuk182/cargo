@@ -69,7 +69,7 @@ pub struct Unit<'a> {
 impl<'a> Unit<'a> {
     pub fn buildkey(&self) -> String {
         format!("{}-{}", self.pkg.name(), short_hash(self))
-	}
+    }
 }
 
 impl<'a> Ord for Unit<'a> {
@@ -268,7 +268,8 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                 });
             }
 
-            let feats = self.bcx.resolve.features(unit.pkg.package_id());
+            let bcx = self.bcx;
+            let feats = bcx.resolve.features(unit.pkg.package_id());
             if !feats.is_empty() {
                 self.compilation
                     .cfgs
@@ -276,6 +277,7 @@ impl<'a, 'cfg> Context<'a, 'cfg> {
                     .or_insert_with(|| {
                         feats
                             .iter()
+                            .filter(|feat| bcx.platform_activated(feat.1.as_ref(), unit.kind))
                             .map(|feat| format!("feature=\"{}\"", feat.0))
                             .collect()
                     });

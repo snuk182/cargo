@@ -19,23 +19,23 @@ fn syntax() {
 
             [target.'cfg(unix)'.features]
             b = []
-            [target."cfg(windows)".features]
-            b = []
             
             [features]
             default = ["b"]
         "#,
         ).file("src/lib.rs", r#"
-	        #[cfg(feature = "b")]
-	        pub const BB: usize = 0;
-	        
-	        pub fn bb() { let _ = BB; }
+            #[cfg(feature = "b")]
+            pub const BB: usize = 0;
+            #[cfg(not(feature = "b"))]
+            pub const BB: usize = 1;
+            
+            pub fn bb() -> Result<(), ()> { if BB > 0 { Ok(()) } else { Err(()) } }
         "#).build();
     p.cargo("build -v").run();
 }
 
 #[test]
-fn include() {
+fn include_by_param() {
     let p = project()
         .file(
             "Cargo.toml",
@@ -51,16 +51,16 @@ fn include() {
             b = []
         "#,
         ).file("src/lib.rs", r#"
-	        #[cfg(feature = "b")]
-	        pub const BB: usize = 0;
-	        
-	        pub fn bb() { let _ = BB; }
+            #[cfg(feature = "b")]
+            pub const BB: usize = 0;
+            
+            pub fn bb() { let _ = BB; }
         "#).build();
     p.cargo("build -v --features b").run();
 }
 
-//#[test] TODO
-fn dont_include() {
+#[test]
+fn dont_include_by_platform() {
     let other_family = if cfg!(unix) { "windows" } else { "unix" };
     let p = project()
         .file(
@@ -78,18 +78,46 @@ fn dont_include() {
                 other_family
             ),
         ).file("src/lib.rs", r#"
-	        #[cfg(feature = "b")]
-	        pub const BB: usize = 0;
-	        
-	        pub fn bb() { let _ = BB; }
+            #[cfg(feature = "b")]
+            pub const BB: usize = 0;
+            
+            pub fn bb() { let _ = BB; }
         "#).build();
-    p.cargo("build --features b")
-	    .with_status(101)
-        .with_stderr(
+    p.cargo("build --features b -vv")
+        .with_status(101)
+        .with_stderr_contains(
             "\
-[COMPILING] a v0.0.1 ([..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
-",
+error[E0425]: cannot find value `BB` in this scope",
+        ).run();
+}
+
+#[test]
+fn dont_include_by_param() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "a"
+            version = "0.0.1"
+            authors = []
+
+            [target.'cfg(unix)'.features]
+            b = []
+            [target.'cfg(windows)'.features]
+            b = []
+        "#,
+        ).file("src/lib.rs", r#"
+            #[cfg(feature = "b")]
+            pub const BB: usize = 0;
+            
+            pub fn bb() { let _ = BB; }
+        "#).build();
+    p.cargo("build -v")
+        .with_status(101)
+        .with_stderr_contains(
+            "\
+error[E0425]: cannot find value `BB` in this scope",
         ).run();
 }
 

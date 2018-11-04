@@ -606,6 +606,9 @@ fn rustdoc<'a, 'cfg>(cx: &mut Context<'a, 'cfg>, unit: &Unit<'a>) -> CargoResult
     rustdoc.arg("-o").arg(doc_dir);
 
     for feat in bcx.resolve.features_sorted(unit.pkg.package_id()) {
+        if !bcx.platform_activated(feat.1, unit.kind) {
+            continue;
+        }
         rustdoc.arg("--cfg").arg(&format!("feature=\"{}\"", feat.0));
     }
 
@@ -840,6 +843,9 @@ fn build_base_args<'a, 'cfg>(
     // rustc-caching strategies like sccache are able to cache more, so sort the
     // feature list here.
     for feat in bcx.resolve.features_sorted(unit.pkg.package_id()) {
+        if !bcx.platform_activated(feat.1, unit.kind) {
+            continue;
+        }
         cmd.arg("--cfg").arg(&format!("feature=\"{}\"", feat.0));
     }
 

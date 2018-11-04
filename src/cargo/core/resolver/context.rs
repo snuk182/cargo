@@ -311,7 +311,14 @@ fn build_requirements<'a, 'b: 'a>(
             ..
         } => {
             for item in requested.iter() {
-                reqs.require_value(&FeatureValue::new(item.0, s), item.1.clone())?;
+                reqs.require_value(
+                    &FeatureValue::new(item.0, s), 
+                    if let Some((platform, _)) = s.features().get(&item.0) {
+                        platform.clone()
+                    } else {
+                        item.1.clone()
+                    }
+                )?;
             }
         }
     }
