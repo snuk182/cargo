@@ -375,7 +375,7 @@ impl<'r> Requirements<'r> {
     }
 
     fn seen(&mut self, feat: InternedString, platform: Option<Platform>) -> bool {
-        if let Some(_) = self.visited.get(&feat) {// TODO check platform misfit?
+        if let Some(_) = self.visited.get(&feat) {
             true
         } else {
             self.used.insert(feat, platform);
@@ -384,7 +384,7 @@ impl<'r> Requirements<'r> {
     }
 
     fn require_dependency(&mut self, pkg: InternedString) {
-        if self.seen(pkg, None) { // TODO really None?
+        if self.seen(pkg, None) {
             return;
         }
         self.deps.entry(pkg).or_insert((false, Vec::new())).0 = true;
@@ -407,7 +407,16 @@ impl<'r> Requirements<'r> {
                 ),
                 _ => {}
             }
-            self.require_value(&fv, platform.clone())?;
+            let platform = if let FeatureValue::Feature(feature) = fv {
+                if let Some((platform, _)) = self.summary.features().get(feature) {
+                    platform.clone()
+                } else {
+                    platform.clone()
+                }
+            } else {
+                platform.clone()
+            };
+            self.require_value(&fv, platform)?;
         }
         Ok(())
     }

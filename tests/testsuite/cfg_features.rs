@@ -1,10 +1,4 @@
-use std::fmt;
-use std::str::FromStr;
-
-use cargo::util::{Cfg, CfgExpr};
-use support::registry::Package;
-use support::rustc_host;
-use support::{basic_manifest, project};
+use support::project;
 
 #[test]
 fn syntax() {
@@ -19,17 +13,11 @@ fn syntax() {
 
             [target.'cfg(unix)'.features]
             b = []
-            
-            [features]
-            default = ["b"]
+            [target.'cfg(windows)'.features]
+            b = []
         "#,
         ).file("src/lib.rs", r#"
-            #[cfg(feature = "b")]
-            pub const BB: usize = 0;
-            #[cfg(not(feature = "b"))]
-            pub const BB: usize = 1;
-            
-            pub fn bb() -> Result<(), ()> { if BB > 0 { Ok(()) } else { Err(()) } }
+            pub fn bb() {}
         "#).build();
     p.cargo("build -v").run();
 }
@@ -48,15 +36,17 @@ fn include_by_param() {
             [target.'cfg(unix)'.features]
             b = []
             [target.'cfg(windows)'.features]
-            b = []
+            c = []
         "#,
         ).file("src/lib.rs", r#"
             #[cfg(feature = "b")]
             pub const BB: usize = 0;
+            #[cfg(feature = "c")]
+            pub const BB: usize = 1;
             
-            pub fn bb() { let _ = BB; }
+            pub fn bb() -> Result<(), ()> { if BB > 0 { Ok(()) } else { Err(()) } }
         "#).build();
-    p.cargo("build -v --features b").run();
+    p.cargo(format!("build -v --features {}", if cfg!(unix) { "b" } else { "c" }).as_str()).run();
 }
 
 #[test]
@@ -105,7 +95,40 @@ fn dont_include_by_param() {
             [target.'cfg(unix)'.features]
             b = []
             [target.'cfg(windows)'.features]
+            c = []
+        "#,
+        ).file("src/lib.rs", r#"
+            #[cfg(feature = "b")]
+            pub const BB: usize = 0;
+            #[cfg(feature = "c")]
+            pub const BB: usize = 1;
+            
+            pub fn bb() -> Result<(), ()> { if BB > 0 { Ok(()) } else { Err(()) } }
+        "#).build();
+    p.cargo("build -v")
+        .with_status(101)
+        .with_stderr_contains(
+            "\
+error[E0425]: cannot find value `BB` in this scope",
+        ).run();
+}
+
+#[test]
+fn dont_include_default() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "a"
+            version = "0.0.1"
+            authors = []
+
+            [target.'cfg(unix)'.features]
             b = []
+            
+            [features]
+            default = ["b"]
         "#,
         ).file("src/lib.rs", r#"
             #[cfg(feature = "b")]
