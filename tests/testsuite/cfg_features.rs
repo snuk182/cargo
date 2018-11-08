@@ -19,7 +19,10 @@ fn syntax() {
         ).file("src/lib.rs", r#"
             pub fn bb() {}
         "#).build();
-    p.cargo("build -v").run();
+    p.cargo("build -v")
+        .with_stderr_contains("\
+    Finished dev [unoptimized + debuginfo] target(s) in [..]s
+        ").run();
 }
 
 #[test]
@@ -46,7 +49,13 @@ fn include_by_param() {
             
             pub fn bb() -> Result<(), ()> { if BB > 0 { Ok(()) } else { Err(()) } }
         "#).build();
-    p.cargo(format!("build -v --features {}", if cfg!(unix) { "b" } else { "c" }).as_str()).run();
+    p.cargo(format!("build --features {}", if cfg!(unix) { "b" } else { "c" }).as_str())
+        .with_stderr(
+            "\
+[COMPILING] a v0.0.1 ([CWD])
+[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
+",
+        ).run();
 }
 
 #[test]
