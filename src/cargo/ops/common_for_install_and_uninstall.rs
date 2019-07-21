@@ -8,12 +8,13 @@ use failure::{bail, format_err};
 use semver::VersionReq;
 use serde::{Deserialize, Serialize};
 
+use crate::core::compiler::Freshness;
 use crate::core::{Dependency, Package, PackageId, Source, SourceId};
 use crate::ops::{self, CompileFilter, CompileOptions};
 use crate::sources::PathSource;
 use crate::util::errors::{CargoResult, CargoResultExt};
 use crate::util::{Config, ToSemver};
-use crate::util::{FileLock, Filesystem, Freshness};
+use crate::util::{FileLock, Filesystem};
 
 /// On-disk tracking for which package installed which binary.
 ///
@@ -210,7 +211,7 @@ impl InstallTracker {
                 // `cargo install --path ...` is always rebuilt.
                 return Ok((Freshness::Dirty, duplicates));
             }
-            if matching_duplicates.iter().all(|dupe_pkg_id| {
+            let is_up_to_date = |dupe_pkg_id| {
                 let info = self
                     .v2
                     .installs
@@ -228,7 +229,8 @@ impl InstallTracker {
                     && dupe_pkg_id.source_id() == source_id
                     && precise_equal
                     && info.is_up_to_date(opts, target, &exes)
-            }) {
+            };
+            if matching_duplicates.iter().all(is_up_to_date) {
                 Ok((Freshness::Fresh, duplicates))
             } else {
                 Ok((Freshness::Dirty, duplicates))
@@ -543,7 +545,7 @@ pub fn resolve_root(flag: Option<&str>, config: &Config) -> CargoResult<Filesyst
 }
 
 /// Determines the `PathSource` from a `SourceId`.
-pub fn path_source<'a>(source_id: SourceId, config: &'a Config) -> CargoResult<PathSource<'a>> {
+pub fn path_source(source_id: SourceId, config: &Config) -> CargoResult<PathSource<'_>> {
     let path = source_id
         .url()
         .to_file_path()
@@ -559,10 +561,15 @@ pub fn select_pkg<'a, T>(
     config: &Config,
     needs_update: bool,
     list_all: &mut dyn FnMut(&mut T) -> CargoResult<Vec<Package>>,
-) -> CargoResult<(Package, Box<dyn Source + 'a>)>
+) -> CargoResult<Package>
 where
     T: Source + 'a,
 {
+    // This operation may involve updating some sources or making a few queries
+    // which may involve frobbing caches, as a result make sure we synchronize
+    // with other global Cargos
+    let _lock = config.acquire_package_cache_lock()?;
+
     if needs_update {
         source.update()?;
     }
@@ -646,7 +653,7 @@ where
         match deps.iter().map(|p| p.package_id()).max() {
             Some(pkgid) => {
                 let pkg = Box::new(&mut source).download_now(pkgid, config)?;
-                Ok((pkg, Box::new(source)))
+                Ok(pkg)
             }
             None => {
                 let vers_info = vers
@@ -678,7 +685,7 @@ where
                 ),
             },
         };
-        return Ok((pkg.clone(), Box::new(source)));
+        return Ok(pkg.clone());
 
         fn multi_err(kind: &str, mut pkgs: Vec<&Package>) -> String {
             pkgs.sort_unstable_by_key(|a| a.name());

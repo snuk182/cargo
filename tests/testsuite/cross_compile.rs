@@ -1,7 +1,7 @@
 use crate::support::{basic_bin_manifest, basic_manifest, cross_compile, project};
 use crate::support::{is_nightly, rustc_host};
 
-#[test]
+#[cargo_test]
 fn simple_cross() {
     if cross_compile::disabled() {
         return;
@@ -50,7 +50,7 @@ fn simple_cross() {
     p.process(&p.target_bin(&target, "foo")).run();
 }
 
-#[test]
+#[cargo_test]
 fn simple_cross_config() {
     if cross_compile::disabled() {
         return;
@@ -109,7 +109,7 @@ fn simple_cross_config() {
     p.process(&p.target_bin(&target, "foo")).run();
 }
 
-#[test]
+#[cargo_test]
 fn simple_deps() {
     if cross_compile::disabled() {
         return;
@@ -143,7 +143,7 @@ fn simple_deps() {
     p.process(&p.target_bin(&target, "foo")).run();
 }
 
-#[test]
+#[cargo_test]
 fn plugin_deps() {
     if cross_compile::disabled() {
         return;
@@ -236,7 +236,7 @@ fn plugin_deps() {
     foo.process(&foo.target_bin(&target, "foo")).run();
 }
 
-#[test]
+#[cargo_test]
 fn plugin_to_the_max() {
     if cross_compile::disabled() {
         return;
@@ -338,7 +338,7 @@ fn plugin_to_the_max() {
     foo.process(&foo.target_bin(&target, "foo")).run();
 }
 
-#[test]
+#[cargo_test]
 fn linker_and_ar() {
     if cross_compile::disabled() {
         return;
@@ -379,7 +379,7 @@ fn linker_and_ar() {
             "\
 [COMPILING] foo v0.5.0 ([CWD])
 [RUNNING] `rustc --crate-name foo src/foo.rs --color never --crate-type bin \
-    --emit=dep-info,link -C debuginfo=2 \
+    --emit=[..]link -C debuginfo=2 \
     -C metadata=[..] \
     --out-dir [CWD]/target/{target}/debug/deps \
     --target {target} \
@@ -392,7 +392,7 @@ fn linker_and_ar() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn plugin_with_extra_dylib_dep() {
     if cross_compile::disabled() {
         return;
@@ -482,7 +482,7 @@ fn plugin_with_extra_dylib_dep() {
     foo.cargo("build --target").arg(&target).run();
 }
 
-#[test]
+#[cargo_test]
 fn cross_tests() {
     if cross_compile::disabled() {
         return;
@@ -545,7 +545,7 @@ fn cross_tests() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn no_cross_doctests() {
     if cross_compile::disabled() {
         return;
@@ -603,7 +603,7 @@ fn no_cross_doctests() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn simple_cargo_run() {
     if cross_compile::disabled() {
         return;
@@ -628,7 +628,7 @@ fn simple_cargo_run() {
     p.cargo("run --target").arg(&target).run();
 }
 
-#[test]
+#[cargo_test]
 fn cross_with_a_build_script() {
     if cross_compile::disabled() {
         return;
@@ -690,7 +690,7 @@ fn cross_with_a_build_script() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn build_script_needed_for_host_and_target() {
     if cross_compile::disabled() {
         return;
@@ -793,15 +793,14 @@ fn build_script_needed_for_host_and_target() {
             host = host
         ))
         .with_stderr_contains(&format!(
-            "\
-             [RUNNING] `rustc [..] src/main.rs [..] --target {target} [..] \
+            "[RUNNING] `rustc [..] src/main.rs [..] --target {target} [..] \
              -L /path/to/{target}`",
             target = target
         ))
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn build_deps_for_the_right_arch() {
     if cross_compile::disabled() {
         return;
@@ -844,7 +843,7 @@ fn build_deps_for_the_right_arch() {
     p.cargo("build -v --target").arg(&target).run();
 }
 
-#[test]
+#[cargo_test]
 fn build_script_only_host() {
     if cross_compile::disabled() {
         return;
@@ -895,7 +894,7 @@ fn build_script_only_host() {
     p.cargo("build -v --target").arg(&target).run();
 }
 
-#[test]
+#[cargo_test]
 fn plugin_build_script_right_arch() {
     if cross_compile::disabled() {
         return;
@@ -933,7 +932,7 @@ fn plugin_build_script_right_arch() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn build_script_with_platform_specific_dependencies() {
     if cross_compile::disabled() {
         return;
@@ -1006,7 +1005,7 @@ fn build_script_with_platform_specific_dependencies() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn platform_specific_dependencies_do_not_leak() {
     if cross_compile::disabled() {
         return;
@@ -1060,7 +1059,7 @@ fn platform_specific_dependencies_do_not_leak() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn platform_specific_variables_reflected_in_build_scripts() {
     if cross_compile::disabled() {
         return;
@@ -1146,7 +1145,7 @@ fn platform_specific_variables_reflected_in_build_scripts() {
     p.cargo("build -v --target").arg(&target).run();
 }
 
-#[test]
+#[cargo_test]
 fn cross_test_dylib() {
     if cross_compile::disabled() {
         return;

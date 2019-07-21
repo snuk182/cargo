@@ -10,7 +10,7 @@ use bufstream::BufStream;
 use git2;
 
 // Tests that HTTP auth is offered from `credential.helper`.
-#[test]
+#[cargo_test]
 fn http_auth_offered() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = server.local_addr().unwrap();
@@ -29,11 +29,9 @@ fn http_auth_offered() {
         let mut conn = BufStream::new(server.accept().unwrap().0);
         let req = headers(&mut conn);
         conn.write_all(
-            b"\
-            HTTP/1.1 401 Unauthorized\r\n\
-            WWW-Authenticate: Basic realm=\"wheee\"\r\n
-            \r\n\
-        ",
+            b"HTTP/1.1 401 Unauthorized\r\n\
+              WWW-Authenticate: Basic realm=\"wheee\"\r\n\
+              \r\n",
         )
         .unwrap();
         assert_eq!(
@@ -51,11 +49,9 @@ fn http_auth_offered() {
         let mut conn = BufStream::new(server.accept().unwrap().0);
         let req = headers(&mut conn);
         conn.write_all(
-            b"\
-            HTTP/1.1 401 Unauthorized\r\n\
-            WWW-Authenticate: Basic realm=\"wheee\"\r\n
-            \r\n\
-        ",
+            b"HTTP/1.1 401 Unauthorized\r\n\
+              WWW-Authenticate: Basic realm=\"wheee\"\r\n\
+              \r\n",
         )
         .unwrap();
         assert_eq!(
@@ -91,7 +87,11 @@ fn http_auth_offered() {
     let config = paths::home().join(".gitconfig");
     let mut config = git2::Config::open(&config).unwrap();
     config
-        .set_str("credential.helper", &script.display().to_string())
+        .set_str(
+            "credential.helper",
+            // This is a bash script so replace `\` with `/` for Windows
+            &script.display().to_string().replace("\\", "/"),
+        )
         .unwrap();
 
     let p = project()
@@ -113,10 +113,9 @@ fn http_auth_offered() {
         .file("src/main.rs", "")
         .file(
             ".cargo/config",
-            "\
-        [net]
-        retry = 0
-        ",
+            "[net]
+             retry = 0
+            ",
         )
         .build();
 
@@ -149,7 +148,7 @@ Caused by:
 }
 
 // Boy, sure would be nice to have a TLS implementation in rust!
-#[test]
+#[cargo_test]
 fn https_something_happens() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = server.local_addr().unwrap();
@@ -179,10 +178,9 @@ fn https_something_happens() {
         .file("src/main.rs", "")
         .file(
             ".cargo/config",
-            "\
-        [net]
-        retry = 0
-        ",
+            "[net]
+             retry = 0
+            ",
         )
         .build();
 
@@ -214,7 +212,7 @@ Caused by:
 }
 
 // It would sure be nice to have an SSH implementation in Rust!
-#[test]
+#[cargo_test]
 fn ssh_something_happens() {
     let server = TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = server.local_addr().unwrap();

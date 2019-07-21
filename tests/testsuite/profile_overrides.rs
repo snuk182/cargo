@@ -1,7 +1,7 @@
 use crate::support::registry::Package;
 use crate::support::{basic_lib_manifest, basic_manifest, project};
 
-#[test]
+#[cargo_test]
 fn profile_override_gated() {
     let p = project()
         .file(
@@ -66,7 +66,7 @@ consider adding `cargo-features = [\"profile-overrides\"]` to the manifest
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_override_basic() {
     let p = project()
         .file(
@@ -106,7 +106,7 @@ fn profile_override_basic() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_override_warnings() {
     let p = project()
         .file(
@@ -141,7 +141,7 @@ fn profile_override_warnings() {
 [WARNING] version or URL in profile override spec `bar:1.2.3` does not match any of the packages: bar v0.5.0 ([..])
 [WARNING] profile override spec `bart` did not match any packages
 
-Did you mean `bar`?
+<tab>Did you mean `bar`?
 [WARNING] profile override spec `no-suggestion` did not match any packages
 [COMPILING] [..]
 ",
@@ -149,7 +149,7 @@ Did you mean `bar`?
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_override_dev_release_only() {
     let p = project()
         .file(
@@ -185,7 +185,7 @@ Caused by:
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_override_bad_settings() {
     let bad_values = [
         (
@@ -236,7 +236,7 @@ fn profile_override_bad_settings() {
     }
 }
 
-#[test]
+#[cargo_test]
 fn profile_override_hierarchy() {
     // Test that the precedence rules are correct for different types.
     let p = project()
@@ -321,24 +321,24 @@ fn profile_override_hierarchy() {
     p.cargo("build -v").masquerade_as_nightly_cargo().with_stderr_unordered("\
 [COMPILING] m3 [..]
 [COMPILING] dep [..]
-[RUNNING] `rustc --crate-name m3 m3/src/lib.rs --color never --crate-type lib --emit=dep-info,link -C codegen-units=4 [..]
-[RUNNING] `rustc --crate-name dep [..]dep/src/lib.rs --color never --crate-type lib --emit=dep-info,link -C codegen-units=3 [..]
-[RUNNING] `rustc --crate-name m3 m3/src/lib.rs --color never --crate-type lib --emit=dep-info,link -C codegen-units=1 [..]
-[RUNNING] `rustc --crate-name build_script_build m1/build.rs --color never --crate-type bin --emit=dep-info,link -C codegen-units=4 [..]
+[RUNNING] `rustc --crate-name m3 m3/src/lib.rs --color never --crate-type lib --emit=[..]link -C codegen-units=4 [..]
+[RUNNING] `rustc --crate-name dep [..]dep/src/lib.rs --color never --crate-type lib --emit=[..]link -C codegen-units=3 [..]
+[RUNNING] `rustc --crate-name m3 m3/src/lib.rs --color never --crate-type lib --emit=[..]link -C codegen-units=1 [..]
+[RUNNING] `rustc --crate-name build_script_build m1/build.rs --color never --crate-type bin --emit=[..]link -C codegen-units=4 [..]
 [COMPILING] m2 [..]
-[RUNNING] `rustc --crate-name build_script_build m2/build.rs --color never --crate-type bin --emit=dep-info,link -C codegen-units=2 [..]
+[RUNNING] `rustc --crate-name build_script_build m2/build.rs --color never --crate-type bin --emit=[..]link -C codegen-units=2 [..]
 [RUNNING] `[..]/m1-[..]/build-script-build`
 [RUNNING] `[..]/m2-[..]/build-script-build`
-[RUNNING] `rustc --crate-name m2 m2/src/lib.rs --color never --crate-type lib --emit=dep-info,link -C codegen-units=2 [..]
+[RUNNING] `rustc --crate-name m2 m2/src/lib.rs --color never --crate-type lib --emit=[..]link -C codegen-units=2 [..]
 [COMPILING] m1 [..]
-[RUNNING] `rustc --crate-name m1 m1/src/lib.rs --color never --crate-type lib --emit=dep-info,link -C codegen-units=1 [..]
+[RUNNING] `rustc --crate-name m1 m1/src/lib.rs --color never --crate-type lib --emit=[..]link -C codegen-units=1 [..]
 [FINISHED] dev [unoptimized + debuginfo] [..]
 ",
         )
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_override_spec_multiple() {
     let p = project()
         .file(
@@ -376,7 +376,7 @@ found profile override specs: bar, bar:0.5.0",
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_override_spec() {
     let p = project()
         .file(
@@ -441,7 +441,7 @@ fn profile_override_spec() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn override_proc_macro() {
     Package::new("shared", "1.0.0").publish();
     let p = project()

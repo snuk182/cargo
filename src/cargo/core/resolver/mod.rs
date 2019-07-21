@@ -54,7 +54,6 @@ use std::time::{Duration, Instant};
 
 use log::{debug, trace};
 
-use crate::core::interning::InternedString;
 use crate::core::PackageIdSpec;
 use crate::core::{Dependency, PackageId, Registry, Summary};
 use crate::util::config::Config;
@@ -62,17 +61,19 @@ use crate::util::errors::CargoResult;
 use crate::util::profile;
 
 use self::context::{Activations, Context};
-use self::types::{Candidate, ConflictMap, ConflictReason, DepsFrame, GraphNode};
-use self::types::{RcVecIter, RegistryQueryer, RemainingDeps, ResolverProgress};
+use self::dep_cache::RegistryQueryer;
+use self::types::{ConflictMap, ConflictReason, DepsFrame};
+use self::types::{FeaturesMap, RcVecIter, RemainingDeps, ResolverProgress};
 
+pub use self::encode::Metadata;
 pub use self::encode::{EncodableDependency, EncodablePackageId, EncodableResolve};
-pub use self::encode::{Metadata, WorkspaceResolve};
 pub use self::errors::{ActivateError, ActivateResult, ResolveError};
 pub use self::resolve::Resolve;
 pub use self::types::Method;
 
 mod conflict_cache;
 mod context;
+mod dep_cache;
 mod encode;
 mod errors;
 mod resolve;
@@ -119,12 +120,11 @@ mod types;
 ///     When we have a decision for how to implement is without breaking existing functionality
 ///     this flag can be removed.
 pub fn resolve(
-    summaries: &[(Summary, Method<'_>)],
+    summaries: &[(Summary, Method)],
     replacements: &[(PackageIdSpec, Dependency)],
     registry: &mut dyn Registry,
     try_to_use: &HashSet<PackageId>,
     config: Option<&Config>,
-    print_warnings: bool,
     check_public_visible_dependencies: bool,
 ) -> CargoResult<Resolve> {
     let cx = Context::new(check_public_visible_dependencies);
@@ -143,7 +143,7 @@ pub fn resolve(
     }
     let resolve = Resolve::new(
         cx.graph(),
-        cx.resolve_replacements(),
+        cx.resolve_replacements(&registry),
         cx.resolve_features
             .iter()
             .map(|(k, v)| (*k, v.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()))
@@ -157,18 +157,6 @@ pub fn resolve(
     check_duplicate_pkgs_in_lockfile(&resolve)?;
     trace!("resolved: {:?}", resolve);
 
-    // If we have a shell, emit warnings about required deps used as feature.
-    if let Some(config) = config {
-        if print_warnings {
-            let mut shell = config.shell();
-            let mut warnings = &cx.warnings;
-            while let Some(ref head) = warnings.head {
-                shell.warn(&head.0)?;
-                warnings = &head.1;
-            }
-        }
-    }
-
     Ok(resolve)
 }
 
@@ -180,7 +168,7 @@ pub fn resolve(
 fn activate_deps_loop(
     mut cx: Context,
     registry: &mut RegistryQueryer<'_>,
-    summaries: &[(Summary, Method<'_>)],
+    summaries: &[(Summary, Method)],
     config: Option<&Config>,
 ) -> CargoResult<Context> {
     let mut backtrack_stack = Vec::new();
@@ -193,11 +181,7 @@ fn activate_deps_loop(
     // Activate all the initial summaries to kick off some work.
     for &(ref summary, ref method) in summaries {
         debug!("initial activation: {}", summary.package_id());
-        let candidate = Candidate {
-            summary: summary.clone(),
-            replace: None,
-        };
-        let res = activate(&mut cx, registry, None, candidate, method);
+        let res = activate(&mut cx, registry, None, summary.clone(), method.clone());
         match res {
             Ok(Some((frame, _))) => remaining_deps.push(frame),
             Ok(None) => (),
@@ -224,7 +208,7 @@ fn activate_deps_loop(
     while let Some((just_here_for_the_error_messages, frame)) =
         remaining_deps.pop_most_constrained()
     {
-        let (mut parent, (mut cur, (mut dep, candidates, mut features))) = frame;
+        let (mut parent, (mut dep, candidates, mut features)) = frame;
 
         // If we spend a lot of time here (we shouldn't in most cases) then give
         // a bit of a visual indicator as to what we're doing.
@@ -233,7 +217,7 @@ fn activate_deps_loop(
         trace!(
             "{}[{}]>{} {} candidates",
             parent.name(),
-            cur,
+            cx.age(),
             dep.package_name(),
             candidates.len()
         );
@@ -279,7 +263,7 @@ fn activate_deps_loop(
                 trace!(
                     "{}[{}]>{} -- no candidates",
                     parent.name(),
-                    cur,
+                    cx.age(),
                     dep.package_name()
                 );
 
@@ -324,7 +308,6 @@ fn activate_deps_loop(
                     Some((candidate, has_another, frame)) => {
                         // Reset all of our local variables used with the
                         // contents of `frame` to complete our backtrack.
-                        cur = frame.cur;
                         cx = frame.context;
                         remaining_deps = frame.remaining_deps;
                         remaining_candidates = frame.remaining_candidates;
@@ -369,7 +352,6 @@ fn activate_deps_loop(
             // if we can.
             let backtrack = if has_another {
                 Some(BacktrackFrame {
-                    cur,
                     context: Context::clone(&cx),
                     remaining_deps: remaining_deps.clone(),
                     remaining_candidates: remaining_candidates.clone(),
@@ -382,21 +364,21 @@ fn activate_deps_loop(
                 None
             };
 
-            let pid = candidate.summary.package_id();
+            let pid = candidate.package_id();
             let method = Method::Required {
                 dev_deps: false,
-                features: &features,
+                features: Rc::clone(&features),
                 all_features: false,
                 uses_default_features: dep.uses_default_features(),
             };
             trace!(
                 "{}[{}]>{} trying {}",
                 parent.name(),
-                cur,
+                cx.age(),
                 dep.package_name(),
-                candidate.summary.version()
+                candidate.version()
             );
-            let res = activate(&mut cx, registry, Some((&parent, &dep)), candidate, &method);
+            let res = activate(&mut cx, registry, Some((&parent, &dep)), candidate, method);
 
             let successfully_activated = match res {
                 // Success! We've now activated our `candidate` in our context
@@ -425,7 +407,7 @@ fn activate_deps_loop(
                         if let Some(conflicting) = frame
                             .remaining_siblings
                             .clone()
-                            .filter_map(|(_, (ref new_dep, _, _))| {
+                            .filter_map(|(ref new_dep, _, _)| {
                                 past_conflicting_activations.conflicting(&cx, new_dep)
                             })
                             .next()
@@ -542,7 +524,7 @@ fn activate_deps_loop(
                         trace!(
                             "{}[{}]>{} skipping {} ",
                             parent.name(),
-                            cur,
+                            cx.age(),
                             dep.package_name(),
                             pid.version()
                         );
@@ -607,14 +589,12 @@ fn activate(
     cx: &mut Context,
     registry: &mut RegistryQueryer<'_>,
     parent: Option<(&Summary, &Dependency)>,
-    candidate: Candidate,
-    method: &Method<'_>,
+    candidate: Summary,
+    method: Method,
 ) -> ActivateResult<Option<(DepsFrame, Duration)>> {
-    let candidate_pid = candidate.summary.package_id();
+    let candidate_pid = candidate.package_id();
     if let Some((parent, dep)) = parent {
         let parent_pid = parent.package_id();
-        cx.resolve_graph
-            .push(GraphNode::Link(parent_pid, candidate_pid, dep.clone()));
         Rc::make_mut(
             // add a edge from candidate to parent in the parents graph
             cx.parents.link(candidate_pid, parent_pid),
@@ -671,13 +651,16 @@ fn activate(
         }
     }
 
-    let activated = cx.flag_activated(&candidate.summary, method)?;
+    let activated = cx.flag_activated(&candidate, &method, parent)?;
 
-    let candidate = match candidate.replace {
+    let candidate = match registry.replacement_summary(candidate_pid) {
         Some(replace) => {
-            cx.resolve_replacements
-                .push((candidate_pid, replace.package_id()));
-            if cx.flag_activated(&replace, method)? && activated {
+            // Note the `None` for parent here since `[replace]` is a bit wonky
+            // and doesn't activate the same things that `[patch]` typically
+            // does. TBH it basically cause panics in the test suite if
+            // `parent` is passed through here and `[replace]` is otherwise
+            // on life support so it's not critical to fix bugs anyway per se.
+            if cx.flag_activated(replace, &method, None)? && activated {
                 return Ok(None);
             }
             trace!(
@@ -685,36 +668,47 @@ fn activate(
                 replace.package_id(),
                 candidate_pid
             );
-            replace
+            replace.clone()
         }
         None => {
             if activated {
                 return Ok(None);
             }
             trace!("activating {}", candidate_pid);
-            candidate.summary
+            candidate
         }
     };
 
     let now = Instant::now();
-    let deps = cx.build_deps(registry, parent.map(|p| p.0), &candidate, method)?;
+    let (used_features, deps) =
+        &*registry.build_deps(parent.map(|p| p.0.package_id()), &candidate, &method)?;
+
+    // Record what list of features is active for this package.
+    if !used_features.is_empty() {
+        Rc::make_mut(
+            cx.resolve_features
+                .entry(candidate.package_id())
+                .or_insert_with(Rc::default),
+        )
+        .extend(used_features.iter().map(|(k, v)| (*k, v.clone())).collect::<HashMap<_, _>>());
+    }
+
     let frame = DepsFrame {
         parent: candidate,
         just_for_error_messages: false,
-        remaining_siblings: RcVecIter::new(Rc::new(deps)),
+        remaining_siblings: RcVecIter::new(Rc::clone(deps)),
     };
     Ok(Some((frame, now.elapsed())))
 }
 
 #[derive(Clone)]
 struct BacktrackFrame {
-    cur: usize,
     context: Context,
     remaining_deps: RemainingDeps,
     remaining_candidates: RemainingCandidates,
     parent: Summary,
     dep: Dependency,
-    features: Rc<Vec<InternedString>>,
+    features: FeaturesMap,
     conflicting_activations: ConflictMap,
 }
 
@@ -731,13 +725,13 @@ struct BacktrackFrame {
 /// filtered out, and as they are filtered the causes will be added to `conflicting_prev_active`.
 #[derive(Clone)]
 struct RemainingCandidates {
-    remaining: RcVecIter<Candidate>,
+    remaining: RcVecIter<Summary>,
     // This is a inlined peekable generator
-    has_another: Option<Candidate>,
+    has_another: Option<Summary>,
 }
 
 impl RemainingCandidates {
-    fn new(candidates: &Rc<Vec<Candidate>>) -> RemainingCandidates {
+    fn new(candidates: &Rc<Vec<Summary>>) -> RemainingCandidates {
         RemainingCandidates {
             remaining: RcVecIter::new(Rc::clone(candidates)),
             has_another: None,
@@ -766,14 +760,14 @@ impl RemainingCandidates {
         cx: &Context,
         dep: &Dependency,
         parent: PackageId,
-    ) -> Option<(Candidate, bool)> {
-        'main: for (_, b) in self.remaining.by_ref() {
-            let b_id = b.summary.package_id();
+    ) -> Option<(Summary, bool)> {
+        'main: for b in self.remaining.by_ref() {
+            let b_id = b.package_id();
             // The `links` key in the manifest dictates that there's only one
             // package in a dependency graph, globally, with that particular
             // `links` key. If this candidate links to something that's already
             // linked to by a different package then we've gotta skip this.
-            if let Some(link) = b.summary.links() {
+            if let Some(link) = b.links() {
                 if let Some(&a) = cx.links.get(&link) {
                     if a != b_id {
                         conflicting_prev_active
@@ -793,7 +787,7 @@ impl RemainingCandidates {
             // Here we throw out our candidate if it's *compatible*, yet not
             // equal, to all previously activated versions.
             if let Some((a, _)) = cx.activations.get(&b_id.as_activations_key()) {
-                if *a != b.summary {
+                if *a != b {
                     conflicting_prev_active
                         .entry(a.package_id())
                         .or_insert(ConflictReason::Semver);
@@ -899,25 +893,62 @@ fn generalize_conflicting(
             // A dep is equivalent to one of the things it can resolve to.
             // Thus, if all the things it can resolve to have already ben determined
             // to be conflicting, then we can just say that we conflict with the parent.
-            if registry
-                .query(&critical_parents_dep)
+            if let Some(others) = registry
+                .query(critical_parents_dep)
                 .expect("an already used dep now error!?")
                 .iter()
                 .rev() // the last one to be tried is the least likely to be in the cache, so start with that.
-                .all(|other| {
-                    let mut con = conflicting_activations.clone();
-                    con.remove(&backtrack_critical_id);
-                    con.insert(
-                        other.summary.package_id(),
-                        backtrack_critical_reason.clone(),
-                    );
-                    past_conflicting_activations.contains(&dep, &con)
+                .map(|other| {
+                    past_conflicting_activations
+                        .find(
+                            dep,
+                            &|id| {
+                                if id == other.package_id() {
+                                    // we are imagining that we used other instead
+                                    Some(backtrack_critical_age)
+                                } else {
+                                    cx.is_active(id)
+                                }
+                            },
+                            Some(other.package_id()),
+                            // we only care about things that are newer then critical_age
+                            backtrack_critical_age,
+                        )
+                        .map(|con| (other.package_id(), con))
                 })
+                .collect::<Option<Vec<(PackageId, &ConflictMap)>>>()
             {
                 let mut con = conflicting_activations.clone();
-                con.remove(&backtrack_critical_id);
+                // It is always valid to combine previously inserted conflicts.
+                // A, B are both known bad states each that can never be activated.
+                // A + B is redundant but cant be activated, as if
+                // A + B is active then A is active and we know that is not ok.
+                for (_, other) in &others {
+                    con.extend(other.iter().map(|(&id, re)| (id, re.clone())));
+                }
+                // Now that we have this combined conflict, we can do a substitution:
+                // A dep is equivalent to one of the things it can resolve to.
+                // So we can remove all the things that it resolves to and replace with the parent.
+                for (other_id, _) in &others {
+                    con.remove(other_id);
+                }
                 con.insert(*critical_parent, backtrack_critical_reason);
-                past_conflicting_activations.insert(&dep, &con);
+
+                if cfg!(debug_assertions) {
+                    // the entire point is to find an older conflict, so let's make sure we did
+                    let new_age = con
+                        .keys()
+                        .map(|&c| cx.is_active(c).expect("not currently active!?"))
+                        .max()
+                        .unwrap();
+                    assert!(
+                        new_age < backtrack_critical_age,
+                        "new_age {} < backtrack_critical_age {}",
+                        new_age,
+                        backtrack_critical_age
+                    );
+                }
+                past_conflicting_activations.insert(dep, &con);
                 return Some(con);
             }
         }
@@ -940,7 +971,7 @@ fn find_candidate(
     parent: &Summary,
     backtracked: bool,
     conflicting_activations: &ConflictMap,
-) -> Option<(Candidate, bool, BacktrackFrame)> {
+) -> Option<(Summary, bool, BacktrackFrame)> {
     // When we're calling this method we know that `parent` failed to
     // activate. That means that some dependency failed to get resolved for
     // whatever reason. Normally, that means that all of those reasons
@@ -957,7 +988,12 @@ fn find_candidate(
             .any(|c| *c == ConflictReason::PublicDependency)
     {
         // we dont have abnormal situations. So we can ask `cx` for how far back we need to go.
-        cx.is_conflicting(Some(parent.package_id()), conflicting_activations)
+        let a = cx.is_conflicting(Some(parent.package_id()), conflicting_activations);
+        // If the `conflicting_activations` does not apply to `cx`, then something went very wrong
+        // in building it. But we will just fall back to laboriously trying all possibilities witch
+        // will give us the correct answer so only `assert` if there is a developer to debug it.
+        debug_assert!(a.is_some());
+        a
     } else {
         None
     };

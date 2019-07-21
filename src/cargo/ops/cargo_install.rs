@@ -6,13 +6,15 @@ use std::{env, fs};
 use failure::{bail, format_err};
 use tempfile::Builder as TempFileBuilder;
 
+use crate::core::compiler::Freshness;
 use crate::core::compiler::{DefaultExecutor, Executor};
-use crate::core::{Edition, PackageId, Source, SourceId, Workspace};
+use crate::core::resolver::Method;
+use crate::core::{Edition, PackageId, PackageIdSpec, Source, SourceId, Workspace};
 use crate::ops;
 use crate::ops::common_for_install_and_uninstall::*;
 use crate::sources::{GitSource, SourceConfigMap};
 use crate::util::errors::{CargoResult, CargoResultExt};
-use crate::util::{paths, Config, Filesystem, Freshness};
+use crate::util::{paths, Config, Filesystem};
 
 struct Transaction {
     bins: Vec<PathBuf>,
@@ -143,7 +145,7 @@ fn install_one(
 ) -> CargoResult<()> {
     let config = opts.config;
 
-    let (pkg, source) = if source_id.is_git() {
+    let pkg = if source_id.is_git() {
         select_pkg(
             GitSource::new(source_id, config)?,
             krate,
@@ -213,7 +215,7 @@ fn install_one(
         Some(Filesystem::new(config.cwd().join("target-install")))
     };
 
-    let ws = match overidden_target_dir {
+    let mut ws = match overidden_target_dir {
         Some(dir) => Workspace::ephemeral(pkg, config, Some(dir), false)?,
         None => {
             let mut ws = Workspace::new(pkg.manifest_path(), config)?;
@@ -221,6 +223,7 @@ fn install_one(
             ws
         }
     };
+    ws.set_ignore_lock(config.lock_update_allowed());
     let pkg = ws.current()?;
 
     if from_cwd {
@@ -301,8 +304,10 @@ fn install_one(
 
     config.shell().status("Installing", pkg)?;
 
+    check_yanked_install(&ws)?;
+
     let exec: Arc<dyn Executor> = Arc::new(DefaultExecutor);
-    let compile = ops::compile_ws(&ws, Some(source), opts, &exec).chain_err(|| {
+    let compile = ops::compile_ws(&ws, opts, &exec).chain_err(|| {
         if let Some(td) = td_opt.take() {
             // preserve the temporary directory, so the user can inspect it
             td.into_path();
@@ -456,10 +461,7 @@ fn install_one(
         let mut pkg_map = BTreeMap::new();
         for (bin_name, opt_pkg_id) in &duplicates {
             let key = opt_pkg_id.map_or_else(|| "unknown".to_string(), |pkg_id| pkg_id.to_string());
-            pkg_map
-                .entry(key)
-                .or_insert_with(|| Vec::new())
-                .push(bin_name);
+            pkg_map.entry(key).or_insert_with(Vec::new).push(bin_name);
         }
         for (pkg_descr, bin_names) in &pkg_map {
             config.shell().status(
@@ -474,6 +476,37 @@ fn install_one(
         }
         Ok(())
     }
+}
+
+fn check_yanked_install(ws: &Workspace<'_>) -> CargoResult<()> {
+    if ws.ignore_lock() || !ws.root().join("Cargo.lock").exists() {
+        return Ok(());
+    }
+    let specs = vec![PackageIdSpec::from_package_id(ws.current()?.package_id())];
+    // It would be best if `source` could be passed in here to avoid a
+    // duplicate "Updating", but since `source` is taken by value, then it
+    // wouldn't be available for `compile_ws`.
+    let (pkg_set, resolve) = ops::resolve_ws_with_method(ws, Method::Everything, &specs)?;
+    let mut sources = pkg_set.sources_mut();
+
+    // Checking the yanked status invovles taking a look at the registry and
+    // maybe updating files, so be sure to lock it here.
+    let _lock = ws.config().acquire_package_cache_lock()?;
+
+    for pkg_id in resolve.iter() {
+        if let Some(source) = sources.get_mut(pkg_id.source_id()) {
+            if source.is_yanked(pkg_id)? {
+                ws.config().shell().warn(format!(
+                    "package `{}` in Cargo.lock is yanked in registry `{}`, \
+                     consider running without --locked",
+                    pkg_id,
+                    pkg_id.source_id().display_registry_name()
+                ))?;
+            }
+        }
+    }
+
+    Ok(())
 }
 
 /// Display a list of installed binaries.

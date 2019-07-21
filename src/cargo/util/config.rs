@@ -6,11 +6,11 @@ use std::env;
 use std::fmt;
 use std::fs::{self, File};
 use std::io::prelude::*;
-use std::io::SeekFrom;
+use std::io::{self, SeekFrom};
 use std::mem;
 use std::path::{Path, PathBuf};
 use std::str::FromStr;
-use std::sync::{Once, ONCE_INIT};
+use std::sync::Once;
 use std::time::Instant;
 use std::vec;
 
@@ -25,12 +25,12 @@ use crate::core::profiles::ConfigProfiles;
 use crate::core::shell::Verbosity;
 use crate::core::{CliUnstable, Shell, SourceId, Workspace};
 use crate::ops;
-use crate::util::errors::{internal, CargoResult, CargoResultExt};
+use crate::util::errors::{self, internal, CargoResult, CargoResultExt};
 use crate::util::toml as cargo_toml;
 use crate::util::Filesystem;
 use crate::util::Rustc;
-use crate::util::ToUrl;
-use crate::util::{paths, validate_package_name};
+use crate::util::{paths, validate_package_name, FileLock};
+use crate::util::{IntoUrl, IntoUrlWithBase};
 
 /// Configuration information for cargo. This is not specific to a build, it is information
 /// relating to cargo itself.
@@ -52,10 +52,15 @@ pub struct Config {
     rustdoc: LazyCell<PathBuf>,
     /// Whether we are printing extra verbose messages
     extra_verbose: bool,
-    /// `frozen` is set if we shouldn't access the network
+    /// `frozen` is the same as `locked`, but additionally will not access the
+    /// network to determine if the lock file is out-of-date.
     frozen: bool,
-    /// `locked` is set if we should not update lock files
+    /// `locked` is set if we should not update lock files. If the lock file
+    /// is missing, or needs to be updated, an error is produced.
     locked: bool,
+    /// `offline` is set if we should never access the network, but otherwise
+    /// continue operating if possible.
+    offline: bool,
     /// A global static IPC control mechanism (used for managing parallel builds)
     jobserver: Option<jobserver::Client>,
     /// Cli flags of the form "-Z something"
@@ -74,12 +79,17 @@ pub struct Config {
     env: HashMap<String, String>,
     /// Profiles loaded from config.
     profiles: LazyCell<ConfigProfiles>,
+    /// Tracks which sources have been updated to avoid multiple updates.
+    updated_sources: LazyCell<RefCell<HashSet<SourceId>>>,
+    /// Lock, if held, of the global package cache along with the number of
+    /// acquisitions so far.
+    package_cache_lock: RefCell<Option<(Option<FileLock>, usize)>>,
 }
 
 impl Config {
     pub fn new(shell: Shell, cwd: PathBuf, homedir: PathBuf) -> Config {
         static mut GLOBAL_JOBSERVER: *mut jobserver::Client = 0 as *mut _;
-        static INIT: Once = ONCE_INIT;
+        static INIT: Once = Once::new();
 
         // This should be called early on in the process, so in theory the
         // unsafety is ok here. (taken ownership of random fds)
@@ -114,6 +124,7 @@ impl Config {
             extra_verbose: false,
             frozen: false,
             locked: false,
+            offline: false,
             jobserver: unsafe {
                 if GLOBAL_JOBSERVER.is_null() {
                     None
@@ -129,6 +140,8 @@ impl Config {
             target_dir: None,
             env,
             profiles: LazyCell::new(),
+            updated_sources: LazyCell::new(),
+            package_cache_lock: RefCell::new(None),
         }
     }
 
@@ -271,8 +284,21 @@ impl Config {
         })
     }
 
+    pub fn updated_sources(&self) -> RefMut<'_, HashSet<SourceId>> {
+        self.updated_sources
+            .borrow_with(|| RefCell::new(HashSet::new()))
+            .borrow_mut()
+    }
+
     pub fn values(&self) -> CargoResult<&HashMap<String, ConfigValue>> {
         self.values.try_borrow_with(|| self.load_values())
+    }
+
+    pub fn values_mut(&mut self) -> CargoResult<&mut HashMap<String, ConfigValue>> {
+        match self.values.borrow_mut() {
+            Some(map) => Ok(map),
+            None => failure::bail!("config values not loaded yet"),
+        }
     }
 
     // Note: this is used by RLS, not Cargo.
@@ -547,6 +573,7 @@ impl Config {
         color: &Option<String>,
         frozen: bool,
         locked: bool,
+        offline: bool,
         target_dir: &Option<PathBuf>,
         unstable_flags: &[String],
     ) -> CargoResult<()> {
@@ -591,6 +618,11 @@ impl Config {
         self.extra_verbose = extra_verbose;
         self.frozen = frozen;
         self.locked = locked;
+        self.offline = offline
+            || self
+                .get::<Option<bool>>("net.offline")
+                .unwrap_or(None)
+                .unwrap_or(false);
         self.target_dir = cli_target_dir;
         self.cli_flags.parse(unstable_flags)?;
 
@@ -606,7 +638,11 @@ impl Config {
     }
 
     pub fn network_allowed(&self) -> bool {
-        !self.frozen() && !self.cli_unstable().offline
+        !self.frozen() && !self.offline()
+    }
+
+    pub fn offline(&self) -> bool {
+        self.offline
     }
 
     pub fn frozen(&self) -> bool {
@@ -658,16 +694,32 @@ impl Config {
         validate_package_name(registry, "registry name", "")?;
         Ok(
             match self.get_string(&format!("registries.{}.index", registry))? {
-                Some(index) => {
-                    let url = index.val.to_url()?;
-                    if url.password().is_some() {
-                        failure::bail!("Registry URLs may not contain passwords");
-                    }
-                    url
-                }
+                Some(index) => self.resolve_registry_index(index)?,
                 None => failure::bail!("No index found for registry: `{}`", registry),
             },
         )
+    }
+
+    /// Gets the index for the default registry.
+    pub fn get_default_registry_index(&self) -> CargoResult<Option<Url>> {
+        Ok(match self.get_string("registry.index")? {
+            Some(index) => Some(self.resolve_registry_index(index)?),
+            None => None,
+        })
+    }
+
+    fn resolve_registry_index(&self, index: Value<String>) -> CargoResult<Url> {
+        let base = index
+            .definition
+            .root(self)
+            .join("truncated-by-url_with_base");
+        // Parse val to check it is a URL, not a relative path without a protocol.
+        let _parsed = index.val.into_url()?;
+        let url = index.val.into_url_with_base(Some(&*base))?;
+        if url.password().is_some() {
+            failure::bail!("Registry URLs may not contain passwords");
+        }
+        Ok(url)
     }
 
     /// Loads credentials config from the credentials file into the `ConfigValue` object, if
@@ -803,6 +855,84 @@ impl Config {
         };
         T::deserialize(d).map_err(|e| e.into())
     }
+
+    pub fn assert_package_cache_locked<'a>(&self, f: &'a Filesystem) -> &'a Path {
+        let ret = f.as_path_unlocked();
+        assert!(
+            self.package_cache_lock.borrow().is_some(),
+            "package cache lock is not currently held, Cargo forgot to call \
+             `acquire_package_cache_lock` before we got to this stack frame",
+        );
+        assert!(ret.starts_with(self.home_path.as_path_unlocked()));
+        ret
+    }
+
+    /// Acquires an exclusive lock on the global "package cache"
+    ///
+    /// This lock is global per-process and can be acquired recursively. An RAII
+    /// structure is returned to release the lock, and if this process
+    /// abnormally terminates the lock is also released.
+    pub fn acquire_package_cache_lock(&self) -> CargoResult<PackageCacheLock<'_>> {
+        let mut slot = self.package_cache_lock.borrow_mut();
+        match *slot {
+            // We've already acquired the lock in this process, so simply bump
+            // the count and continue.
+            Some((_, ref mut cnt)) => {
+                *cnt += 1;
+            }
+            None => {
+                let path = ".package-cache";
+                let desc = "package cache";
+
+                // First, attempt to open an exclusive lock which is in general
+                // the purpose of this lock!
+                //
+                // If that fails because of a readonly filesystem or a
+                // permission error, though, then we don't really want to fail
+                // just because of this. All files that this lock protects are
+                // in subfolders, so they're assumed by Cargo to also be
+                // readonly or have invalid permissions for us to write to. If
+                // that's the case, then we don't really need to grab a lock in
+                // the first place here.
+                //
+                // Despite this we attempt to grab a readonly lock. This means
+                // that if our read-only folder is shared read-write with
+                // someone else on the system we should synchronize with them,
+                // but if we can't even do that then we did our best and we just
+                // keep on chugging elsewhere.
+                match self.home_path.open_rw(path, self, desc) {
+                    Ok(lock) => *slot = Some((Some(lock), 1)),
+                    Err(e) => {
+                        if maybe_readonly(&e) {
+                            let lock = self.home_path.open_ro(path, self, desc).ok();
+                            *slot = Some((lock, 1));
+                            return Ok(PackageCacheLock(self));
+                        }
+
+                        Err(e).chain_err(|| "failed to acquire package cache lock")?;
+                    }
+                }
+            }
+        }
+        return Ok(PackageCacheLock(self));
+
+        fn maybe_readonly(err: &failure::Error) -> bool {
+            err.iter_chain().any(|err| {
+                if let Some(io) = err.downcast_ref::<io::Error>() {
+                    if io.kind() == io::ErrorKind::PermissionDenied {
+                        return true;
+                    }
+
+                    #[cfg(unix)]
+                    return io.raw_os_error() == Some(libc::EROFS);
+                }
+
+                false
+            })
+        }
+    }
+
+    pub fn release_package_cache_lock(&self) {}
 }
 
 /// A segment of a config key.
@@ -932,12 +1062,7 @@ impl std::error::Error for ConfigError {}
 // `cause` and avoid doing the cause formatting here.
 impl fmt::Display for ConfigError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let message = self
-            .error
-            .iter_chain()
-            .map(|e| e.to_string())
-            .collect::<Vec<_>>()
-            .join("\nCaused by:\n  ");
+        let message = errors::display_causes(&self.error);
         if let Some(ref definition) = self.definition {
             write!(f, "error in {}: {}", definition, message)
         } else {
@@ -1643,4 +1768,26 @@ pub fn save_credentials(cfg: &Config, token: String, registry: Option<String>) -
     fn set_permissions(file: &File, mode: u32) -> CargoResult<()> {
         Ok(())
     }
+}
+
+pub struct PackageCacheLock<'a>(&'a Config);
+
+impl Drop for PackageCacheLock<'_> {
+    fn drop(&mut self) {
+        let mut slot = self.0.package_cache_lock.borrow_mut();
+        let (_, cnt) = slot.as_mut().unwrap();
+        *cnt -= 1;
+        if *cnt == 0 {
+            *slot = None;
+        }
+    }
+}
+
+/// returns path to clippy-driver binary
+///
+/// Allows override of the path via `CARGO_CLIPPY_DRIVER` env variable
+pub fn clippy_driver() -> PathBuf {
+    env::var("CARGO_CLIPPY_DRIVER")
+        .unwrap_or_else(|_| "clippy-driver".into())
+        .into()
 }

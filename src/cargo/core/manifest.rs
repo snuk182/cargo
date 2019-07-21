@@ -120,6 +120,19 @@ impl LibKind {
             LibKind::Other(..) => false,
         }
     }
+
+    pub fn requires_upstream_objects(&self) -> bool {
+        match *self {
+            // "lib" == "rlib" and is a compilation that doesn't actually
+            // require upstream object files to exist, only upstream metadata
+            // files. As a result, it doesn't require upstream artifacts
+            LibKind::Lib | LibKind::Rlib => false,
+
+            // Everything else, however, is some form of "linkable output" or
+            // something that requires upstream object files.
+            _ => true,
+        }
+    }
 }
 
 impl fmt::Debug for LibKind {
@@ -191,6 +204,20 @@ impl TargetKind {
             TargetKind::ExampleBin | TargetKind::ExampleLib(..) => "example",
             TargetKind::Bench => "bench",
             TargetKind::CustomBuild => "build-script",
+        }
+    }
+
+    /// Returns whether production of this artifact requires the object files
+    /// from dependencies to be available.
+    ///
+    /// This only returns `false` when all we're producing is an rlib, otherwise
+    /// it will return `true`.
+    pub fn requires_upstream_objects(&self) -> bool {
+        match self {
+            TargetKind::Lib(kinds) | TargetKind::ExampleLib(kinds) => {
+                kinds.iter().any(|k| k.requires_upstream_objects())
+            }
+            _ => true,
         }
     }
 }
@@ -274,6 +301,7 @@ struct SerializedTarget<'a> {
     edition: &'a str,
     #[serde(rename = "required-features", skip_serializing_if = "Option::is_none")]
     required_features: Option<Vec<&'a str>>,
+    doctest: bool,
 }
 
 impl ser::Serialize for Target {
@@ -294,6 +322,7 @@ impl ser::Serialize for Target {
                 .required_features
                 .as_ref()
                 .map(|rf| rf.iter().map(|s| &**s).collect()),
+            doctest: self.doctest && self.doctestable(),
         }
         .serialize(s)
     }
@@ -428,6 +457,9 @@ impl Manifest {
     pub fn summary(&self) -> &Summary {
         &self.summary
     }
+    pub fn summary_mut(&mut self) -> &mut Summary {
+        &mut self.summary
+    }
     pub fn targets(&self) -> &[Target] {
         &self.targets
     }
@@ -445,9 +477,6 @@ impl Manifest {
     }
     pub fn publish(&self) -> &Option<Vec<String>> {
         &self.publish
-    }
-    pub fn publish_lockfile(&self) -> bool {
-        self.publish_lockfile
     }
     pub fn replace(&self) -> &[(PackageIdSpec, Dependency)] {
         &self.replace
@@ -470,10 +499,6 @@ impl Manifest {
         &self.features
     }
 
-    pub fn set_summary(&mut self, summary: Summary) {
-        self.summary = summary;
-    }
-
     pub fn map_source(self, to_replace: SourceId, replace_with: SourceId) -> Manifest {
         Manifest {
             summary: self.summary.map_source(to_replace, replace_with),
@@ -491,12 +516,6 @@ impl Manifest {
                          not work properly in England"
                     )
                 })?;
-        }
-
-        if self.default_run.is_some() {
-            self.features
-                .require(Feature::default_run())
-                .chain_err(|| failure::format_err!("the `default-run` manifest key is unstable"))?;
         }
 
         Ok(())
@@ -796,6 +815,10 @@ impl Target {
         })
     }
 
+    /// Returns whether this target produces an artifact which can be linked
+    /// into a Rust crate.
+    ///
+    /// This only returns true for certain kinds of libraries.
     pub fn linkable(&self) -> bool {
         match self.kind {
             TargetKind::Lib(ref kinds) => kinds.iter().any(|k| k.linkable()),

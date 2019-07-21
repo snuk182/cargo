@@ -186,6 +186,7 @@ features! {
         [stable] rename_dependency: bool,
 
         // Whether a lock file is published with this crate
+        // This is deprecated, and will likely be removed in a future version.
         [unstable] publish_lockfile: bool,
 
         // Overriding profiles for dependencies.
@@ -195,10 +196,13 @@ features! {
         [unstable] namespaced_features: bool,
 
         // "default-run" manifest option,
-        [unstable] default_run: bool,
+        [stable] default_run: bool,
 
         // Declarative build scripts.
         [unstable] metabuild: bool,
+
+        // Specifying the 'public' attribute on dependencies
+        [unstable] public_dependency: bool,
     }
 }
 
@@ -319,7 +323,6 @@ impl Features {
 pub struct CliUnstable {
     pub print_im_a_teapot: bool,
     pub unstable_options: bool,
-    pub offline: bool,
     pub no_index_update: bool,
     pub avoid_dev_deps: bool,
     pub minimal_versions: bool,
@@ -329,6 +332,7 @@ pub struct CliUnstable {
     pub dual_proc_macros: bool,
     pub mtime_on_use: bool,
     pub install_upgrade: bool,
+    pub cache_messages: bool,
 }
 
 impl CliUnstable {
@@ -364,7 +368,6 @@ impl CliUnstable {
         match k {
             "print-im-a-teapot" => self.print_im_a_teapot = parse_bool(v)?,
             "unstable-options" => self.unstable_options = true,
-            "offline" => self.offline = true,
             "no-index-update" => self.no_index_update = true,
             "avoid-dev-deps" => self.avoid_dev_deps = true,
             "minimal-versions" => self.minimal_versions = true,
@@ -374,6 +377,7 @@ impl CliUnstable {
             "dual-proc-macros" => self.dual_proc_macros = true,
             "mtime-on-use" => self.mtime_on_use = true,
             "install-upgrade" => self.install_upgrade = true,
+            "cache-messages" => self.cache_messages = true,
             _ => failure::bail!("unknown `-Z` flag specified: {}", k),
         }
 

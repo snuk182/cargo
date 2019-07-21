@@ -1,6 +1,6 @@
 use crate::support::{basic_lib_manifest, project};
 
-#[test]
+#[cargo_test]
 fn edition_works_for_build_script() {
     let p = project()
         .file(
@@ -28,5 +28,5 @@ fn edition_works_for_build_script() {
         .file("a/src/lib.rs", "pub fn foo() {}")
         .build();
 
-    p.cargo("build -v").masquerade_as_nightly_cargo().run();
+    p.cargo("build -v").run();
 }

@@ -1,9 +1,11 @@
 use std::borrow::Borrow;
-use std::collections::{HashMap, BTreeMap};
+use std::collections::{HashMap, HashSet};
+use std::iter::FromIterator;
 use std::fmt;
 
 use url::Url;
 
+use crate::core::dependency::Kind;
 use crate::core::{Dependency, PackageId, PackageIdSpec, Summary, Target};
 use crate::util::errors::CargoResult;
 use crate::util::{Graph, Platform};
@@ -28,6 +30,8 @@ pub struct Resolve {
     checksums: HashMap<PackageId, Option<String>>,
     metadata: Metadata,
     unused_patches: Vec<PackageId>,
+    // A map from packages to a set of their public dependencies
+    public_dependencies: HashMap<PackageId, HashSet<PackageId>>,
 }
 
 impl Resolve {
@@ -40,6 +44,22 @@ impl Resolve {
         unused_patches: Vec<PackageId>,
     ) -> Resolve {
         let reverse_replacements = replacements.iter().map(|(&p, &r)| (r, p)).collect();
+        let public_dependencies = graph
+            .iter()
+            .map(|p| {
+                let public_deps = graph
+                    .edges(p)
+                    .filter(|(_, deps)| {
+                        deps.iter()
+                            .any(|d| d.kind() == Kind::Normal && d.is_public())
+                    })
+                    .map(|(dep_package, _)| *dep_package)
+                    .collect::<HashSet<PackageId>>();
+
+                (*p, public_deps)
+            })
+            .collect();
+
         Resolve {
             graph,
             replacements,
@@ -49,6 +69,7 @@ impl Resolve {
             unused_patches,
             empty_features: HashMap::new(),
             reverse_replacements,
+            public_dependencies,
         }
     }
 
@@ -74,7 +95,7 @@ impl Resolve {
         //
         // * Something got seriously corrupted
         // * A "mirror" isn't actually a mirror as some changes were made
-        // * A replacement source wasn't actually a replacment, some changes
+        // * A replacement source wasn't actually a replacement, some changes
         //   were made
         //
         // In all of these cases, we want to report an error to indicate that
@@ -196,8 +217,17 @@ unable to verify that `{0}` is the same as when the lockfile was generated
         self.features.get(&pkg).unwrap_or(&self.empty_features)
     }
 
-    pub fn features_sorted(&self, pkg: PackageId) -> BTreeMap<&str, Option<&Platform>> {
-        self.features(pkg).iter().map(|(k, v)| (k.as_str(), v.as_ref())).collect()
+    pub fn is_public_dep(&self, pkg: PackageId, dep: PackageId) -> bool {
+        self.public_dependencies
+            .get(&pkg)
+            .map(|public_deps| public_deps.contains(&dep))
+            .unwrap_or_else(|| panic!("Unknown dependency {:?} for package {:?}", dep, pkg))
+    }
+
+    pub fn features_sorted(&self, pkg: PackageId) -> Vec<&str> {
+        let mut v = Vec::from_iter(self.features(pkg).iter().map(|s| s.0.as_ref()));
+        v.sort_unstable();
+        v
     }
 
     pub fn query(&self, spec: &str) -> CargoResult<PackageId> {

@@ -139,8 +139,6 @@ pub mod git;
 pub mod paths;
 pub mod publish;
 pub mod registry;
-#[macro_use]
-pub mod resolver;
 
 /*
  *
@@ -884,8 +882,14 @@ impl Execs {
                 panic!("`.stream()` is for local debugging")
             }
             process.exec_with_streaming(
-                &mut |out| Ok(println!("{}", out)),
-                &mut |err| Ok(eprintln!("{}", err)),
+                &mut |out| {
+                    println!("{}", out);
+                    Ok(())
+                },
+                &mut |err| {
+                    eprintln!("{}", err);
+                    Ok(())
+                },
                 true,
             )
         } else {
@@ -1029,12 +1033,12 @@ impl Execs {
             );
 
             if let (Err(_), Err(_)) = (match_std, match_err) {
-                Err(format!(
+                return Err(format!(
                     "expected to find:\n\
                      {}\n\n\
                      did not find in either output.",
                     expect
-                ))?;
+                ));
             }
         }
 
@@ -1166,7 +1170,7 @@ impl Execs {
                 let e = out.lines();
 
                 let mut diffs = self.diff_lines(a.clone(), e.clone(), true);
-                while let Some(..) = a.next() {
+                while a.next().is_some() {
                     let a = self.diff_lines(a.clone(), e.clone(), true);
                     if a.len() < diffs.len() {
                         diffs = a;
@@ -1214,7 +1218,7 @@ impl Execs {
                 let e = out.lines();
 
                 let mut diffs = self.diff_lines(a.clone(), e.clone(), true);
-                while let Some(..) = a.next() {
+                while a.next().is_some() {
                     let a = self.diff_lines(a.clone(), e.clone(), true);
                     if a.len() < diffs.len() {
                         diffs = a;
@@ -1391,7 +1395,7 @@ pub fn lines_match(expected: &str, actual: &str) -> bool {
     actual.is_empty() || expected.ends_with("[..]")
 }
 
-#[test]
+#[cargo_test]
 fn lines_match_works() {
     assert!(lines_match("a b", "a b"));
     assert!(lines_match("a[..]b", "a b"));
@@ -1620,6 +1624,7 @@ fn substitute_macros(input: &str) -> String {
         ("[IGNORED]", "     Ignored"),
         ("[INSTALLED]", "   Installed"),
         ("[REPLACED]", "    Replaced"),
+        ("[NOTE]", "        Note"),
     ];
     let mut result = input.to_owned();
     for &(pat, subst) in &macros {
@@ -1645,7 +1650,9 @@ pub fn rustc_host() -> String {
 }
 
 pub fn is_nightly() -> bool {
-    RUSTC.with(|r| r.verbose_version.contains("-nightly") || r.verbose_version.contains("-dev"))
+    env::var("CARGO_TEST_DISABLE_NIGHTLY").is_err()
+        && RUSTC
+            .with(|r| r.verbose_version.contains("-nightly") || r.verbose_version.contains("-dev"))
 }
 
 pub fn process<T: AsRef<OsStr>>(t: T) -> cargo::util::ProcessBuilder {
@@ -1679,6 +1686,7 @@ fn _process(t: &OsStr) -> cargo::util::ProcessBuilder {
         .env_remove("XDG_CONFIG_HOME") // see #2345
         .env("GIT_CONFIG_NOSYSTEM", "1") // keep trying to sandbox ourselves
         .env_remove("EMAIL")
+        .env_remove("USER") // not set on some rust-lang docker images
         .env_remove("MFLAGS")
         .env_remove("MAKEFLAGS")
         .env_remove("CARGO_MAKEFLAGS")
@@ -1738,7 +1746,7 @@ pub fn is_coarse_mtime() -> bool {
 }
 
 /// Some CI setups are much slower then the equipment used by Cargo itself.
-/// Architectures that do not have a modern processor, hardware emulation, ect.
+/// Architectures that do not have a modern processor, hardware emulation, etc.
 /// This provides a way for those setups to increase the cut off for all the time based test.
 pub fn slow_cpu_multiplier(main: u64) -> Duration {
     lazy_static::lazy_static! {
@@ -1746,4 +1754,14 @@ pub fn slow_cpu_multiplier(main: u64) -> Duration {
             env::var("CARGO_TEST_SLOW_CPU_MULTIPLIER").ok().and_then(|m| m.parse().ok()).unwrap_or(1);
     }
     Duration::from_secs(*SLOW_CPU_MULTIPLIER * main)
+}
+
+pub fn clippy_is_available() -> bool {
+    if let Err(e) = process("clippy-driver").arg("-V").exec_with_output() {
+        eprintln!("clippy-driver not available, skipping clippy test");
+        eprintln!("{:?}", e);
+        false
+    } else {
+        true
+    }
 }

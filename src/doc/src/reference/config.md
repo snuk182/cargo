@@ -2,7 +2,7 @@
 
 This document will explain how Cargo’s configuration system works, as well as
 available keys or configuration. For configuration of a package through its
-manifest, see the [manifest format](reference/manifest.html).
+manifest, see the [manifest format](manifest.md).
 
 ### Hierarchical structure
 
@@ -113,7 +113,7 @@ multiplexing = true # whether or not to use HTTP/2 multiplexing where possible
 # This setting can be used to help debug what's going on with HTTP requests made
 # by Cargo. When set to `true` then Cargo's normal debug logging will be filled
 # in with HTTP information, which you can extract with
-# `RUST_LOG=cargo::ops::registry=debug` (and `trace` may print more).
+# `CARGO_LOG=cargo::ops::registry=debug` (and `trace` may print more).
 #
 # Be wary when posting these logs elsewhere though, it may be the case that a
 # header has an authentication token in it you don't want leaked! Be sure to
@@ -141,6 +141,7 @@ color = 'auto'         # whether cargo colorizes output
 [net]
 retry = 2 # number of times a network call will automatically retried
 git-fetch-with-cli = false  # if `true` we'll use `git`-the-CLI to fetch git repos
+offline = false # do not access the network, but otherwise try to proceed if possible
 
 # Alias cargo commands. The first 4 aliases are built in. If your
 # command requires grouped whitespace use the list format.
@@ -195,7 +196,7 @@ be specified with environment variables of the form
 `CARGO_REGISTRIES_NAME_TOKEN` where `NAME` is the name of the registry in all
 capital letters.
 
-[`cargo login`]: commands/cargo-login.html
-[`cargo publish`]: commands/cargo-publish.html
-[env]: reference/environment-variables.html
-[source]: reference/source-replacement.html
+[`cargo login`]: ../commands/cargo-login.md
+[`cargo publish`]: ../commands/cargo-publish.md
+[env]: environment-variables.md
+[source]: source-replacement.md

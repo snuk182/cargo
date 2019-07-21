@@ -1,7 +1,7 @@
 use crate::support::rustc_host;
 use crate::support::{basic_lib_manifest, project};
 
-#[test]
+#[cargo_test]
 fn pathless_tools() {
     let target = rustc_host();
 
@@ -32,7 +32,7 @@ fn pathless_tools() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn absolute_tools() {
     let target = rustc_host();
 
@@ -71,7 +71,7 @@ fn absolute_tools() {
 ").run();
 }
 
-#[test]
+#[cargo_test]
 fn relative_tools() {
     let target = rustc_host();
 
@@ -115,7 +115,7 @@ fn relative_tools() {
         )).run();
 }
 
-#[test]
+#[cargo_test]
 fn custom_runner() {
     let target = rustc_host();
 
@@ -173,7 +173,7 @@ fn custom_runner() {
 }
 
 // can set a custom runner via `target.'cfg(..)'.runner`
-#[test]
+#[cargo_test]
 fn custom_runner_cfg() {
     let p = project()
         .file("src/main.rs", "fn main() {}")
@@ -188,16 +188,18 @@ fn custom_runner_cfg() {
 
     p.cargo("run -- --param")
         .with_status(101)
-        .with_stderr_contains("\
+        .with_stderr_contains(
+            "\
 [COMPILING] foo v0.0.1 ([CWD])
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `nonexistent-runner -r target/debug/foo[EXE] --param`
-")
+",
+        )
         .run();
 }
 
 // custom runner set via `target.$triple.runner` have precende over `target.'cfg(..)'.runner`
-#[test]
+#[cargo_test]
 fn custom_runner_cfg_precedence() {
     let target = rustc_host();
 
@@ -220,15 +222,17 @@ fn custom_runner_cfg_precedence() {
 
     p.cargo("run -- --param")
         .with_status(101)
-        .with_stderr_contains("\
-            [COMPILING] foo v0.0.1 ([CWD])
+        .with_stderr_contains(
+            "\
+[COMPILING] foo v0.0.1 ([CWD])
 [FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
 [RUNNING] `nonexistent-runner -r target/debug/foo[EXE] --param`
-")
+",
+        )
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn custom_runner_cfg_collision() {
     let p = project()
         .file("src/main.rs", "fn main() {}")
@@ -246,8 +250,10 @@ fn custom_runner_cfg_collision() {
 
     p.cargo("run -- --param")
         .with_status(101)
-        .with_stderr_contains("\
+        .with_stderr_contains(
+            "\
 [ERROR] several matching instances of `target.'cfg(..)'.runner` in `.cargo/config`
-")
+",
+        )
         .run();
 }

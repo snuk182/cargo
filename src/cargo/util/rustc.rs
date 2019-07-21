@@ -67,15 +67,20 @@ impl Rustc {
     }
 
     /// Gets a process builder set up to use the found rustc version, with a wrapper if `Some`.
-    pub fn process(&self) -> ProcessBuilder {
+    pub fn process_with(&self, path: impl AsRef<Path>) -> ProcessBuilder {
         match self.wrapper {
             Some(ref wrapper) if !wrapper.get_program().is_empty() => {
                 let mut cmd = wrapper.clone();
-                cmd.arg(&self.path);
+                cmd.arg(path.as_ref());
                 cmd
             }
-            _ => self.process_no_wrapper(),
+            _ => util::process(path.as_ref()),
         }
+    }
+
+    /// Gets a process builder set up to use the found rustc version, with a wrapper if `Some`.
+    pub fn process(&self) -> ProcessBuilder {
+        self.process_with(&self.path)
     }
 
     pub fn process_no_wrapper(&self) -> ProcessBuilder {
@@ -95,11 +100,11 @@ impl Rustc {
     }
 }
 
-/// It is a well known that `rustc` is not the fastest compiler in the world.
-/// What is less known is that even `rustc --version --verbose` takes about a
-/// hundred milliseconds! Because we need compiler version info even for no-op
-/// builds, we cache it here, based on compiler's mtime and rustup's current
-/// toolchain.
+/// It is a well known fact that `rustc` is not the fastest compiler in the
+/// world.  What is less known is that even `rustc --version --verbose` takes
+/// about a hundred milliseconds! Because we need compiler version info even
+/// for no-op builds, we cache it here, based on compiler's mtime and rustup's
+/// current toolchain.
 ///
 /// https://github.com/rust-lang/cargo/issues/5315
 /// https://github.com/rust-lang/rust/issues/49761

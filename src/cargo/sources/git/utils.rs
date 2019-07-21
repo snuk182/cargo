@@ -16,7 +16,7 @@ use crate::core::GitReference;
 use crate::util::errors::{CargoResult, CargoResultExt};
 use crate::util::paths;
 use crate::util::process_builder::process;
-use crate::util::{internal, network, Config, Progress, ToUrl};
+use crate::util::{internal, network, Config, IntoUrl, Progress};
 
 #[derive(PartialEq, Clone, Debug)]
 pub struct GitRevision(git2::Oid);
@@ -274,7 +274,7 @@ impl<'a> GitCheckout<'a> {
         //
         // Note that we still use the same fetch options because while we don't
         // need authentication information we may want progress bars and such.
-        let url = database.path.to_url()?;
+        let url = database.path.into_url()?;
         let mut repo = None;
         with_fetch_options(&git_config, &url, config, &mut |fopts| {
             let mut checkout = git2::build::CheckoutBuilder::new();
@@ -310,7 +310,7 @@ impl<'a> GitCheckout<'a> {
 
     fn fetch(&mut self, cargo_config: &Config) -> CargoResult<()> {
         info!("fetch {}", self.repo.path().display());
-        let url = self.database.path.to_url()?;
+        let url = self.database.path.into_url()?;
         let refspec = "refs/heads/*:refs/heads/*";
         fetch(&mut self.repo, &url, refspec, cargo_config)?;
         Ok(())
@@ -396,7 +396,7 @@ impl<'a> GitCheckout<'a> {
 
             // Fetch data from origin and reset to the head commit
             let refspec = "refs/heads/*:refs/heads/*";
-            let url = url.to_url()?;
+            let url = url.into_url()?;
             fetch(&mut repo, &url, refspec, cargo_config).chain_err(|| {
                 internal(format!(
                     "failed to fetch submodule `{}` from {}",
@@ -508,7 +508,8 @@ where
         // callback asking for other authentication methods to try. Check
         // cred_helper_bad to make sure we only try the git credentail helper
         // once, to avoid looping forever.
-        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) && cred_helper_bad.is_none() {
+        if allowed.contains(git2::CredentialType::USER_PASS_PLAINTEXT) && cred_helper_bad.is_none()
+        {
             let r = git2::Cred::credential_helper(cfg, url, username);
             cred_helper_bad = Some(r.is_err());
             return r;
@@ -702,7 +703,7 @@ pub fn fetch(
     // request we're about to issue.
     maybe_gc_repo(repo)?;
 
-    // Unfortuantely `libgit2` is notably lacking in the realm of authentication
+    // Unfortunately `libgit2` is notably lacking in the realm of authentication
     // when compared to the `git` command line. As a result, allow an escape
     // hatch for users that would prefer to use `git`-the-CLI for fetching
     // repositories instead of `libgit2`-the-library. This should make more
@@ -721,7 +722,7 @@ pub fn fetch(
         // repository. It could also fail, however, for a whole slew of other
         // reasons (aka network related reasons). We want Cargo to automatically
         // recover from corrupt repositories, but we don't want Cargo to stomp
-        // over other legitimate errors.o
+        // over other legitimate errors.
         //
         // Consequently we save off the error of the `fetch` operation and if it
         // looks like a "corrupt repo" error then we blow away the repo and try
@@ -769,6 +770,17 @@ fn fetch_with_cli(
         .arg("--update-head-ok") // see discussion in #2078
         .arg(url.to_string())
         .arg(refspec)
+        // If cargo is run by git (for example, the `exec` command in `git
+        // rebase`), the GIT_DIR is set by git and will point to the wrong
+        // location (this takes precedence over the cwd). Make sure this is
+        // unset so git will look at cwd for the repo.
+        .env_remove("GIT_DIR")
+        // The reset of these may not be necessary, but I'm including them
+        // just to be extra paranoid and avoid any issues.
+        .env_remove("GIT_WORK_TREE")
+        .env_remove("GIT_INDEX_FILE")
+        .env_remove("GIT_OBJECT_DIRECTORY")
+        .env_remove("GIT_ALTERNATE_OBJECT_DIRECTORIES")
         .cwd(repo.path());
     config
         .shell()
@@ -863,7 +875,7 @@ fn reinitialize(repo: &mut git2::Repository) -> CargoResult<()> {
 
 fn init(path: &Path, bare: bool) -> CargoResult<git2::Repository> {
     let mut opts = git2::RepositoryInitOptions::new();
-    // Skip anyting related to templates, they just call all sorts of issues as
+    // Skip anything related to templates, they just call all sorts of issues as
     // we really don't want to use them yet they insist on being used. See #6240
     // for an example issue that comes up.
     opts.external_template(false);

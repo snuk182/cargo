@@ -4,14 +4,14 @@ use std::io::prelude::*;
 use std::path::Path;
 
 use crate::support::cargo_process;
+use crate::support::paths::CargoPathExt;
 use crate::support::registry::Package;
 use crate::support::{
-    basic_manifest, git, path2url, paths, project, publish::validate_crate_contents,
-    registry,
+    basic_manifest, git, path2url, paths, project, publish::validate_crate_contents, registry,
 };
 use git2;
 
-#[test]
+#[cargo_test]
 fn simple() {
     let p = project()
         .file(
@@ -46,6 +46,7 @@ See [..]
     p.cargo("package -l")
         .with_stdout(
             "\
+Cargo.lock
 Cargo.toml
 src/main.rs
 ",
@@ -57,12 +58,12 @@ src/main.rs
     validate_crate_contents(
         f,
         "foo-0.0.1.crate",
-        &["Cargo.toml", "Cargo.toml.orig", "src/main.rs"],
+        &["Cargo.lock", "Cargo.toml", "Cargo.toml.orig", "src/main.rs"],
         &[],
     );
 }
 
-#[test]
+#[cargo_test]
 fn metadata_warning() {
     let p = project().file("src/main.rs", "fn main() {}").build();
     p.cargo("package")
@@ -132,7 +133,7 @@ See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn package_verbose() {
     let root = paths::root().join("all");
     let repo = git::repo(&root)
@@ -151,9 +152,10 @@ fn package_verbose() {
 [WARNING] manifest has no description[..]
 See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info.
 [PACKAGING] foo v0.0.1 ([..])
-[ARCHIVING] [..]
-[ARCHIVING] [..]
+[ARCHIVING] Cargo.toml
+[ARCHIVING] src/main.rs
 [ARCHIVING] .cargo_vcs_info.json
+[ARCHIVING] Cargo.lock
 ",
         )
         .run();
@@ -172,6 +174,7 @@ See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for
         f,
         "foo-0.0.1.crate",
         &[
+            "Cargo.lock",
             "Cargo.toml",
             "Cargo.toml.orig",
             "src/main.rs",
@@ -196,7 +199,7 @@ See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn package_verification() {
     let p = project().file("src/main.rs", "fn main() {}").build();
     p.cargo("build").run();
@@ -214,7 +217,7 @@ See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn vcs_file_collision() {
     let p = project().build();
     let _ = git::repo(&paths::root().join("foo"))
@@ -253,7 +256,7 @@ in package source
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn path_dependency_no_version() {
     let p = project()
         .file(
@@ -288,7 +291,7 @@ dependency `bar` does not specify a version.
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn exclude() {
     let root = paths::root().join("exclude");
     let repo = git::repo(&root)
@@ -364,38 +367,33 @@ fn exclude() {
             "\
 [WARNING] manifest has no description[..]
 See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info.
-[WARNING] [..] file `dir_root_1/some_dir/file` WILL be excluded [..]
+[WARNING] [..] file `dir_root_1/some_dir/file` is now excluded.
 See [..]
-[WARNING] [..] file `dir_root_2/some_dir/file` WILL be excluded [..]
+[WARNING] [..] file `dir_root_2/some_dir/file` is now excluded.
 See [..]
-[WARNING] [..] file `dir_root_3/some_dir/file` WILL be excluded [..]
+[WARNING] [..] file `dir_root_3/some_dir/file` is now excluded.
 See [..]
-[WARNING] [..] file `some_dir/dir_deep_1/some_dir/file` WILL be excluded [..]
+[WARNING] [..] file `some_dir/dir_deep_1/some_dir/file` is now excluded.
 See [..]
-[WARNING] [..] file `some_dir/dir_deep_3/some_dir/file` WILL be excluded [..]
+[WARNING] [..] file `some_dir/dir_deep_3/some_dir/file` is now excluded.
 See [..]
-[WARNING] [..] file `some_dir/file_deep_1` WILL be excluded [..]
+[WARNING] [..] file `some_dir/file_deep_1` is now excluded.
 See [..]
 [PACKAGING] foo v0.0.1 ([..])
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
+[ARCHIVING] Cargo.toml
+[ARCHIVING] file_root_3
+[ARCHIVING] file_root_4
+[ARCHIVING] file_root_5
+[ARCHIVING] some_dir/dir_deep_2/some_dir/file
+[ARCHIVING] some_dir/dir_deep_4/some_dir/file
+[ARCHIVING] some_dir/dir_deep_5/some_dir/file
+[ARCHIVING] some_dir/file_deep_2
+[ARCHIVING] some_dir/file_deep_3
+[ARCHIVING] some_dir/file_deep_4
+[ARCHIVING] some_dir/file_deep_5
+[ARCHIVING] src/main.rs
 [ARCHIVING] .cargo_vcs_info.json
+[ARCHIVING] Cargo.lock
 ",
         )
         .run();
@@ -407,19 +405,14 @@ See [..]
         .with_stdout(
             "\
 .cargo_vcs_info.json
+Cargo.lock
 Cargo.toml
-dir_root_1/some_dir/file
-dir_root_2/some_dir/file
-dir_root_3/some_dir/file
 file_root_3
 file_root_4
 file_root_5
-some_dir/dir_deep_1/some_dir/file
 some_dir/dir_deep_2/some_dir/file
-some_dir/dir_deep_3/some_dir/file
 some_dir/dir_deep_4/some_dir/file
 some_dir/dir_deep_5/some_dir/file
-some_dir/file_deep_1
 some_dir/file_deep_2
 some_dir/file_deep_3
 some_dir/file_deep_4
@@ -430,7 +423,7 @@ src/main.rs
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn include() {
     let root = paths::root().join("include");
     let repo = git::repo(&root)
@@ -457,17 +450,19 @@ fn include() {
             "\
 [WARNING] manifest has no description[..]
 See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for more info.
+[WARNING] both package.include and package.exclude are specified; the exclude list will be ignored
 [PACKAGING] foo v0.0.1 ([..])
-[ARCHIVING] [..]
-[ARCHIVING] [..]
-[ARCHIVING] [..]
+[ARCHIVING] Cargo.toml
+[ARCHIVING] foo.txt
+[ARCHIVING] src/main.rs
 [ARCHIVING] .cargo_vcs_info.json
+[ARCHIVING] Cargo.lock
 ",
         )
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn package_lib_with_bin() {
     let p = project()
         .file("src/main.rs", "extern crate foo; fn main() {}")
@@ -477,7 +472,7 @@ fn package_lib_with_bin() {
     p.cargo("package -v").run();
 }
 
-#[test]
+#[cargo_test]
 fn package_git_submodule() {
     let project = git::new("foo", |project| {
         project
@@ -521,7 +516,7 @@ fn package_git_submodule() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn no_duplicates_from_modified_tracked_files() {
     let root = paths::root().join("all");
     let p = git::repo(&root)
@@ -537,6 +532,7 @@ fn no_duplicates_from_modified_tracked_files() {
         .cwd(p.root())
         .with_stdout(
             "\
+Cargo.lock
 Cargo.toml
 src/main.rs
 ",
@@ -544,7 +540,7 @@ src/main.rs
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn ignore_nested() {
     let cargo_toml = r#"
             [project]
@@ -582,6 +578,7 @@ See https://doc.rust-lang.org/cargo/reference/manifest.html#package-metadata for
     p.cargo("package -l")
         .with_stdout(
             "\
+Cargo.lock
 Cargo.toml
 src[..]main.rs
 ",
@@ -593,14 +590,14 @@ src[..]main.rs
     validate_crate_contents(
         f,
         "foo-0.0.1.crate",
-        &["Cargo.toml", "Cargo.toml.orig", "src/main.rs"],
+        &["Cargo.lock", "Cargo.toml", "Cargo.toml.orig", "src/main.rs"],
         &[],
     );
 }
 
 // Windows doesn't allow these characters in filenames.
 #[cfg(unix)]
-#[test]
+#[cargo_test]
 fn package_weird_characters() {
     let p = project()
         .file("src/main.rs", r#"fn main() { println!("hello"); }"#)
@@ -623,7 +620,7 @@ Caused by:
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn repackage_on_source_change() {
     let p = project()
         .file("src/main.rs", r#"fn main() { println!("hello"); }"#)
@@ -663,12 +660,18 @@ See [..]
     validate_crate_contents(
         f,
         "foo-0.0.1.crate",
-        &["Cargo.toml", "Cargo.toml.orig", "src/main.rs", "src/foo.rs"],
+        &[
+            "Cargo.lock",
+            "Cargo.toml",
+            "Cargo.toml.orig",
+            "src/main.rs",
+            "src/foo.rs",
+        ],
         &[],
     );
 }
 
-#[test]
+#[cargo_test]
 #[cfg(unix)]
 fn broken_symlink() {
     use std::os::unix::fs;
@@ -708,7 +711,7 @@ Caused by:
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn do_not_package_if_repository_is_dirty() {
     let p = project().build();
 
@@ -755,24 +758,23 @@ committed into git:
 
 Cargo.toml
 
-to proceed despite this, pass the `--allow-dirty` flag
+to proceed despite this and include the uncommited changes, pass the `--allow-dirty` flag
 ",
         )
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn generated_manifest() {
     Package::new("abc", "1.0.0").publish();
     Package::new("def", "1.0.0").alternative(true).publish();
     Package::new("ghi", "1.0.0").publish();
+    Package::new("bar", "0.1.0").publish();
 
     let p = project()
         .file(
             "Cargo.toml",
             r#"
-            cargo-features = ["alternative-registries"]
-
             [project]
             name = "foo"
             version = "0.0.1"
@@ -798,9 +800,7 @@ fn generated_manifest() {
         .file("bar/src/lib.rs", "")
         .build();
 
-    p.cargo("package --no-verify")
-        .masquerade_as_nightly_cargo()
-        .run();
+    p.cargo("package --no-verify").run();
 
     let f = File::open(&p.root().join("target/package/foo-0.0.1.crate")).unwrap();
     let rewritten_toml = format!(
@@ -815,8 +815,6 @@ fn generated_manifest() {
 # issue against the rust-lang/cargo repository. If you're
 # editing this file be aware that the upstream Cargo.toml
 # will likely look very different (and much more reasonable)
-
-cargo-features = ["alternative-registries"]
 
 [package]
 name = "foo"
@@ -847,12 +845,12 @@ version = "1.0"
     validate_crate_contents(
         f,
         "foo-0.0.1.crate",
-        &["Cargo.toml", "Cargo.toml.orig", "src/main.rs"],
+        &["Cargo.lock", "Cargo.toml", "Cargo.toml.orig", "src/main.rs"],
         &[("Cargo.toml", &rewritten_toml)],
     );
 }
 
-#[test]
+#[cargo_test]
 fn ignore_workspace_specifier() {
     let p = project()
         .file(
@@ -884,9 +882,7 @@ fn ignore_workspace_specifier() {
         .file("bar/src/lib.rs", "")
         .build();
 
-    p.cargo("package --no-verify")
-        .cwd("bar")
-        .run();
+    p.cargo("package --no-verify").cwd("bar").run();
 
     let f = File::open(&p.root().join("target/package/bar-0.1.0.crate")).unwrap();
     let rewritten_toml = r#"# THIS FILE IS AUTOMATICALLY GENERATED BY CARGO
@@ -914,7 +910,7 @@ authors = []
     );
 }
 
-#[test]
+#[cargo_test]
 fn package_two_kinds_of_deps() {
     Package::new("other", "1.0.0").publish();
     Package::new("other1", "1.0.0").publish();
@@ -938,7 +934,7 @@ fn package_two_kinds_of_deps() {
     p.cargo("package --no-verify").run();
 }
 
-#[test]
+#[cargo_test]
 fn test_edition() {
     let p = project()
         .file(
@@ -956,11 +952,6 @@ fn test_edition() {
         .build();
 
     p.cargo("build -v")
-        .masquerade_as_nightly_cargo()
-        .without_status() // passes on nightly, fails on stable, b/c --edition is nightly-only
-        // --edition is still in flux and we're not passing -Zunstable-options
-        // from Cargo so it will probably error. Only partially match the output
-        // until stuff stabilizes
         .with_stderr_contains(
             "\
 [COMPILING] foo v0.0.1 ([..])
@@ -970,7 +961,7 @@ fn test_edition() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn edition_with_metadata() {
     let p = project()
         .file(
@@ -992,7 +983,7 @@ fn edition_with_metadata() {
     p.cargo("package").run();
 }
 
-#[test]
+#[cargo_test]
 fn test_edition_malformed() {
     let p = project()
         .file(
@@ -1025,178 +1016,11 @@ Caused by:
         .run();
 }
 
-#[test]
-fn package_lockfile() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-            cargo-features = ["publish-lockfile"]
-
-            [project]
-            name = "foo"
-            version = "0.0.1"
-            authors = []
-            license = "MIT"
-            description = "foo"
-            publish-lockfile = true
-        "#,
-        )
-        .file("src/main.rs", "fn main() {}")
-        .build();
-
-    p.cargo("package")
-        .masquerade_as_nightly_cargo()
-        .with_stderr(
-            "\
-[WARNING] manifest has no documentation[..]
-See [..]
-[PACKAGING] foo v0.0.1 ([CWD])
-[VERIFYING] foo v0.0.1 ([CWD])
-[COMPILING] foo v0.0.1 ([CWD][..])
-[FINISHED] dev [unoptimized + debuginfo] target(s) in [..]
-",
-        )
-        .run();
-    assert!(p.root().join("target/package/foo-0.0.1.crate").is_file());
-    p.cargo("package -l")
-        .masquerade_as_nightly_cargo()
-        .with_stdout(
-            "\
-Cargo.lock
-Cargo.toml
-src/main.rs
-",
-        )
-        .run();
-    p.cargo("package")
-        .masquerade_as_nightly_cargo()
-        .with_stdout("")
-        .run();
-
-    let f = File::open(&p.root().join("target/package/foo-0.0.1.crate")).unwrap();
-    validate_crate_contents(
-        f,
-        "foo-0.0.1.crate",
-        &["Cargo.toml", "Cargo.toml.orig", "Cargo.lock", "src/main.rs"],
-        &[],
-    );
-}
-
-#[test]
-fn package_lockfile_git_repo() {
-    let p = project().build();
-
-    // Create a Git repository containing a minimal Rust project.
-    let _ = git::repo(&paths::root().join("foo"))
-        .file(
-            "Cargo.toml",
-            r#"
-            cargo-features = ["publish-lockfile"]
-
-            [project]
-            name = "foo"
-            version = "0.0.1"
-            license = "MIT"
-            description = "foo"
-            documentation = "foo"
-            homepage = "foo"
-            repository = "foo"
-            publish-lockfile = true
-        "#,
-        )
-        .file("src/main.rs", "fn main() {}")
-        .build();
-    p.cargo("package -l")
-        .masquerade_as_nightly_cargo()
-        .with_stdout(
-            "\
-.cargo_vcs_info.json
-Cargo.lock
-Cargo.toml
-src/main.rs
-",
-        )
-        .run();
-}
-
-#[test]
-fn no_lock_file_with_library() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-            cargo-features = ["publish-lockfile"]
-
-            [project]
-            name = "foo"
-            version = "0.0.1"
-            authors = []
-            license = "MIT"
-            description = "foo"
-            publish-lockfile = true
-        "#,
-        )
-        .file("src/lib.rs", "")
-        .build();
-
-    p.cargo("package").masquerade_as_nightly_cargo().run();
-
-    let f = File::open(&p.root().join("target/package/foo-0.0.1.crate")).unwrap();
-    validate_crate_contents(
-        f,
-        "foo-0.0.1.crate",
-        &["Cargo.toml", "Cargo.toml.orig", "src/lib.rs"],
-        &[],
-    );
-}
-
-#[test]
-fn lock_file_and_workspace() {
-    let p = project()
-        .file(
-            "Cargo.toml",
-            r#"
-            [workspace]
-            members = ["foo"]
-        "#,
-        )
-        .file(
-            "foo/Cargo.toml",
-            r#"
-            cargo-features = ["publish-lockfile"]
-
-            [package]
-            name = "foo"
-            version = "0.0.1"
-            authors = []
-            license = "MIT"
-            description = "foo"
-            publish-lockfile = true
-        "#,
-        )
-        .file("foo/src/main.rs", "fn main() {}")
-        .build();
-
-    p.cargo("package")
-        .cwd("foo")
-        .masquerade_as_nightly_cargo()
-        .run();
-
-    let f = File::open(&p.root().join("target/package/foo-0.0.1.crate")).unwrap();
-    validate_crate_contents(
-        f,
-        "foo-0.0.1.crate",
-        &["Cargo.toml", "Cargo.toml.orig", "src/main.rs", "Cargo.lock"],
-        &[],
-    );
-}
-
-#[test]
+#[cargo_test]
 fn do_not_package_if_src_was_modified() {
     let p = project()
         .file("src/main.rs", r#"fn main() { println!("hello"); }"#)
-        .file("foo.txt", "")
+        .file("dir/foo.txt", "")
         .file("bar.txt", "")
         .file(
             "build.rs",
@@ -1207,8 +1031,10 @@ fn do_not_package_if_src_was_modified() {
                 fs::write("src/generated.txt",
                     "Hello, world of generated files."
                 ).expect("failed to create file");
-                fs::remove_file("foo.txt").expect("failed to remove");
+                fs::remove_file("dir/foo.txt").expect("failed to remove file");
+                fs::remove_dir("dir").expect("failed to remove dir");
                 fs::write("bar.txt", "updated content").expect("failed to update");
+                fs::create_dir("new-dir").expect("failed to create dir");
             }
         "#,
         )
@@ -1224,8 +1050,10 @@ Caused by:
   Source directory was modified by build.rs during cargo publish. \
 Build scripts should not modify anything outside of OUT_DIR.
 Changed: [CWD]/target/package/foo-0.0.1/bar.txt
-Added: [CWD]/target/package/foo-0.0.1/src/generated.txt
-Removed: [CWD]/target/package/foo-0.0.1/foo.txt
+Added: [CWD]/target/package/foo-0.0.1/new-dir
+<tab>[CWD]/target/package/foo-0.0.1/src/generated.txt
+Removed: [CWD]/target/package/foo-0.0.1/dir
+<tab>[CWD]/target/package/foo-0.0.1/dir/foo.txt
 
 To proceed despite this, pass the `--no-verify` flag.",
         )
@@ -1234,7 +1062,7 @@ To proceed despite this, pass the `--no-verify` flag.",
     p.cargo("package --no-verify").run();
 }
 
-#[test]
+#[cargo_test]
 fn package_with_select_features() {
     let p = project()
         .file(
@@ -1260,10 +1088,10 @@ fn package_with_select_features() {
         )
         .build();
 
-    p.cargo("package --features required").masquerade_as_nightly_cargo().run();
+    p.cargo("package --features required").run();
 }
 
-#[test]
+#[cargo_test]
 fn package_with_all_features() {
     let p = project()
         .file(
@@ -1289,10 +1117,10 @@ fn package_with_all_features() {
         )
         .build();
 
-    p.cargo("package --all-features").masquerade_as_nightly_cargo().run();
+    p.cargo("package --all-features").run();
 }
 
-#[test]
+#[cargo_test]
 fn package_no_default_features() {
     let p = project()
         .file(
@@ -1319,8 +1147,231 @@ fn package_no_default_features() {
         .build();
 
     p.cargo("package --no-default-features")
-        .masquerade_as_nightly_cargo()
         .with_stderr_contains("error: This crate requires `required` feature!")
         .with_status(101)
         .run();
+}
+
+#[cargo_test]
+fn include_cargo_toml_implicit() {
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            include = ["src/lib.rs"]
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("package --list")
+        .with_stdout("Cargo.toml\nsrc/lib.rs\n")
+        .run();
+}
+
+fn include_exclude_test(
+    include: &str,
+    exclude: &str,
+    files: &[&str],
+    expected: &str,
+    has_warnings: bool,
+) {
+    let mut pb = project().file(
+        "Cargo.toml",
+        &format!(
+            r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+            authors = []
+            license = "MIT"
+            description = "foo"
+            documentation = "foo"
+            homepage = "foo"
+            repository = "foo"
+            include = {}
+            exclude = {}
+            "#,
+            include, exclude
+        ),
+    );
+    for file in files {
+        pb = pb.file(file, "");
+    }
+    let p = pb.build();
+
+    let mut e = p.cargo("package --list");
+    if has_warnings {
+        e.with_stderr_contains("[..]");
+    } else {
+        e.with_stderr("");
+    }
+    e.with_stdout(expected).run();
+    p.root().rm_rf();
+}
+
+#[cargo_test]
+fn package_include_ignore_only() {
+    // Test with a gitignore pattern that fails to parse with glob.
+    // This is a somewhat nonsense pattern, but is an example of something git
+    // allows and glob does not.
+    assert!(glob::Pattern::new("src/abc**").is_err());
+
+    include_exclude_test(
+        r#"["Cargo.toml", "src/abc**", "src/lib.rs"]"#,
+        "[]",
+        &["src/lib.rs", "src/abc1.rs", "src/abc2.rs", "src/abc/mod.rs"],
+        "Cargo.toml\n\
+         src/abc/mod.rs\n\
+         src/abc1.rs\n\
+         src/abc2.rs\n\
+         src/lib.rs\n\
+         ",
+        false,
+    )
+}
+
+#[cargo_test]
+fn gitignore_patterns() {
+    include_exclude_test(
+        r#"["Cargo.toml", "foo"]"#, // include
+        "[]",
+        &["src/lib.rs", "foo", "a/foo", "a/b/foo", "x/foo/y", "bar"],
+        "Cargo.toml\n\
+         a/b/foo\n\
+         a/foo\n\
+         foo\n\
+         x/foo/y\n\
+         ",
+        true,
+    );
+
+    include_exclude_test(
+        r#"["Cargo.toml", "/foo"]"#, // include
+        "[]",
+        &["src/lib.rs", "foo", "a/foo", "a/b/foo", "x/foo/y", "bar"],
+        "Cargo.toml\n\
+         foo\n\
+         ",
+        false,
+    );
+
+    include_exclude_test(
+        "[]",
+        r#"["foo/"]"#, // exclude
+        &["src/lib.rs", "foo", "a/foo", "x/foo/y", "bar"],
+        "Cargo.toml\n\
+         a/foo\n\
+         bar\n\
+         foo\n\
+         src/lib.rs\n\
+         ",
+        true,
+    );
+
+    include_exclude_test(
+        "[]",
+        r#"["*.txt", "[ab]", "[x-z]"]"#, // exclude
+        &[
+            "src/lib.rs",
+            "foo.txt",
+            "bar/foo.txt",
+            "other",
+            "a",
+            "b",
+            "c",
+            "x",
+            "y",
+            "z",
+        ],
+        "Cargo.toml\n\
+         c\n\
+         other\n\
+         src/lib.rs\n\
+         ",
+        false,
+    );
+
+    include_exclude_test(
+        r#"["Cargo.toml", "**/foo/bar"]"#, // include
+        "[]",
+        &["src/lib.rs", "a/foo/bar", "foo", "bar"],
+        "Cargo.toml\n\
+         a/foo/bar\n\
+         ",
+        false,
+    );
+
+    include_exclude_test(
+        r#"["Cargo.toml", "foo/**"]"#, // include
+        "[]",
+        &["src/lib.rs", "a/foo/bar", "foo/x/y/z"],
+        "Cargo.toml\n\
+         foo/x/y/z\n\
+         ",
+        false,
+    );
+
+    include_exclude_test(
+        r#"["Cargo.toml", "a/**/b"]"#, // include
+        "[]",
+        &["src/lib.rs", "a/b", "a/x/b", "a/x/y/b"],
+        "Cargo.toml\n\
+         a/b\n\
+         a/x/b\n\
+         a/x/y/b\n\
+         ",
+        false,
+    );
+}
+
+#[cargo_test]
+fn gitignore_negate() {
+    include_exclude_test(
+        r#"["Cargo.toml", "*.rs", "!foo.rs", "\\!important"]"#, // include
+        "[]",
+        &["src/lib.rs", "foo.rs", "!important"],
+        "!important\n\
+         Cargo.toml\n\
+         src/lib.rs\n\
+         ",
+        false,
+    );
+
+    // NOTE: This is unusual compared to git. Git treats `src/` as a
+    // short-circuit which means rules like `!src/foo.rs` would never run.
+    // However, because Cargo only works by iterating over *files*, it doesn't
+    // short-circuit.
+    include_exclude_test(
+        r#"["Cargo.toml", "src/", "!src/foo.rs"]"#, // include
+        "[]",
+        &["src/lib.rs", "src/foo.rs"],
+        "Cargo.toml\n\
+         src/lib.rs\n\
+         ",
+        false,
+    );
+
+    include_exclude_test(
+        r#"["Cargo.toml", "src/*.rs", "!foo.rs"]"#, // include
+        "[]",
+        &["src/lib.rs", "foo.rs", "src/foo.rs", "src/bar/foo.rs"],
+        "Cargo.toml\n\
+         src/lib.rs\n\
+         ",
+        false,
+    );
+
+    include_exclude_test(
+        "[]",
+        r#"["*.rs", "!foo.rs", "\\!important"]"#, // exclude
+        &["src/lib.rs", "foo.rs", "!important"],
+        "Cargo.toml\n\
+         foo.rs\n\
+         ",
+        false,
+    );
 }

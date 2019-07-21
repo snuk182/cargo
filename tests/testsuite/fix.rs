@@ -3,11 +3,11 @@ use std::fs::File;
 use git2;
 
 use crate::support::git;
-use crate::support::{basic_manifest, project};
+use crate::support::{basic_manifest, clippy_is_available, is_nightly, project};
 
 use std::io::Write;
 
-#[test]
+#[cargo_test]
 fn do_not_fix_broken_builds() {
     let p = project()
         .file(
@@ -33,7 +33,7 @@ fn do_not_fix_broken_builds() {
     assert!(p.read_file("src/lib.rs").contains("let mut x = 3;"));
 }
 
-#[test]
+#[cargo_test]
 fn fix_broken_if_requested() {
     let p = project()
         .file(
@@ -52,7 +52,7 @@ fn fix_broken_if_requested() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn broken_fixes_backed_out() {
     // This works as follows:
     // - Create a `rustc` shim (the "foo" project) which will pretend that the
@@ -141,8 +141,7 @@ fn broken_fixes_backed_out() {
         .env("__CARGO_FIX_YOLO", "1")
         .env("RUSTC", p.root().join("foo/target/debug/foo"))
         .with_stderr_contains(
-            "\
-             warning: failed to automatically apply fixes suggested by rustc \
+            "warning: failed to automatically apply fixes suggested by rustc \
              to crate `bar`\n\
              \n\
              after fixes were automatically applied the compiler reported \
@@ -172,7 +171,7 @@ fn broken_fixes_backed_out() {
     assert!(p.read_file("bar/src/lib.rs").contains("let mut x = 3;"));
 }
 
-#[test]
+#[cargo_test]
 fn fix_path_deps() {
     let p = project()
         .file(
@@ -226,7 +225,7 @@ fn fix_path_deps() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn do_not_fix_non_relevant_deps() {
     let p = project()
         .no_manifest()
@@ -264,7 +263,7 @@ fn do_not_fix_non_relevant_deps() {
     assert!(p.read_file("bar/src/lib.rs").contains("mut"));
 }
 
-#[test]
+#[cargo_test]
 fn prepare_for_2018() {
     let p = project()
         .file(
@@ -304,7 +303,7 @@ fn prepare_for_2018() {
         .contains("let x = crate::foo::FOO;"));
 }
 
-#[test]
+#[cargo_test]
 fn local_paths() {
     let p = project()
         .file(
@@ -338,7 +337,7 @@ fn local_paths() {
     assert!(p.read_file("src/lib.rs").contains("use crate::test::foo;"));
 }
 
-#[test]
+#[cargo_test]
 fn upgrade_extern_crate() {
     let p = project()
         .file(
@@ -388,7 +387,7 @@ fn upgrade_extern_crate() {
     assert!(!p.read_file("src/lib.rs").contains("extern crate"));
 }
 
-#[test]
+#[cargo_test]
 fn specify_rustflags() {
     let p = project()
         .file(
@@ -419,7 +418,7 @@ fn specify_rustflags() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn no_changes_necessary() {
     let p = project().file("src/lib.rs", "").build();
 
@@ -433,7 +432,7 @@ fn no_changes_necessary() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn fixes_extra_mut() {
     let p = project()
         .file(
@@ -459,7 +458,7 @@ fn fixes_extra_mut() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn fixes_two_missing_ampersands() {
     let p = project()
         .file(
@@ -486,7 +485,7 @@ fn fixes_two_missing_ampersands() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn tricky() {
     let p = project()
         .file(
@@ -512,13 +511,12 @@ fn tricky() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn preserve_line_endings() {
     let p = project()
         .file(
             "src/lib.rs",
-            "\
-             fn add(a: &u32) -> u32 { a + 1 }\r\n\
+            "fn add(a: &u32) -> u32 { a + 1 }\r\n\
              pub fn foo() -> u32 { let mut x = 3; add(&x) }\r\n\
              ",
         )
@@ -530,14 +528,13 @@ fn preserve_line_endings() {
     assert!(p.read_file("src/lib.rs").contains("\r\n"));
 }
 
-#[test]
+#[cargo_test]
 fn fix_deny_warnings() {
     let p = project()
         .file(
             "src/lib.rs",
-            "\
-                #![deny(warnings)]
-                pub fn foo() { let mut x = 3; drop(x); }
+            "#![deny(warnings)]
+             pub fn foo() { let mut x = 3; drop(x); }
             ",
         )
         .build();
@@ -547,7 +544,7 @@ fn fix_deny_warnings() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn fix_deny_warnings_but_not_others() {
     let p = project()
         .file(
@@ -572,7 +569,7 @@ fn fix_deny_warnings_but_not_others() {
     assert!(p.read_file("src/lib.rs").contains("fn bar() {}"));
 }
 
-#[test]
+#[cargo_test]
 fn fix_two_files() {
     let p = project()
         .file(
@@ -607,7 +604,7 @@ fn fix_two_files() {
     assert!(!p.read_file("src/bar.rs").contains("let mut x = 3;"));
 }
 
-#[test]
+#[cargo_test]
 fn fixes_missing_ampersand() {
     let p = project()
         .file("src/main.rs", "fn main() { let mut x = 3; drop(x); }")
@@ -651,7 +648,7 @@ fn fixes_missing_ampersand() {
     p.cargo("test").run();
 }
 
-#[test]
+#[cargo_test]
 fn fix_features() {
     let p = project()
         .file(
@@ -682,10 +679,13 @@ fn fix_features() {
     p.cargo("build --features bar").run();
 }
 
-#[test]
+#[cargo_test]
 fn shows_warnings() {
     let p = project()
-        .file("src/lib.rs", "#[deprecated] fn bar() {} pub fn foo() { let _ = bar(); }")
+        .file(
+            "src/lib.rs",
+            "#[deprecated] fn bar() {} pub fn foo() { let _ = bar(); }",
+        )
         .build();
 
     p.cargo("fix --allow-no-vcs")
@@ -693,15 +693,14 @@ fn shows_warnings() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn warns_if_no_vcs_detected() {
     let p = project().file("src/lib.rs", "pub fn foo() {}").build();
 
     p.cargo("fix")
         .with_status(101)
         .with_stderr(
-            "\
-             error: no VCS found for this package and `cargo fix` can potentially perform \
+            "error: no VCS found for this package and `cargo fix` can potentially perform \
              destructive changes; if you'd like to suppress this error pass `--allow-no-vcs`\
              ",
         )
@@ -709,7 +708,7 @@ fn warns_if_no_vcs_detected() {
     p.cargo("fix --allow-no-vcs").run();
 }
 
-#[test]
+#[cargo_test]
 fn warns_about_dirty_working_directory() {
     let p = project().file("src/lib.rs", "pub fn foo() {}").build();
 
@@ -740,7 +739,7 @@ commit the changes to these files:
     p.cargo("fix --allow-dirty").run();
 }
 
-#[test]
+#[cargo_test]
 fn warns_about_staged_working_directory() {
     let p = project().file("src/lib.rs", "pub fn foo() {}").build();
 
@@ -775,7 +774,7 @@ commit the changes to these files:
     p.cargo("fix --allow-staged").run();
 }
 
-#[test]
+#[cargo_test]
 fn does_not_warn_about_clean_working_directory() {
     let p = project().file("src/lib.rs", "pub fn foo() {}").build();
 
@@ -790,7 +789,7 @@ fn does_not_warn_about_clean_working_directory() {
     p.cargo("fix").run();
 }
 
-#[test]
+#[cargo_test]
 fn does_not_warn_about_dirty_ignored_files() {
     let p = project()
         .file("src/lib.rs", "pub fn foo() {}")
@@ -809,7 +808,7 @@ fn does_not_warn_about_dirty_ignored_files() {
     p.cargo("fix").run();
 }
 
-#[test]
+#[cargo_test]
 fn fix_all_targets_by_default() {
     let p = project()
         .file("src/lib.rs", "pub fn foo() { let mut x = 3; drop(x); }")
@@ -822,7 +821,7 @@ fn fix_all_targets_by_default() {
     assert!(!p.read_file("tests/foo.rs").contains("let mut x"));
 }
 
-#[test]
+#[cargo_test]
 fn prepare_for_and_enable() {
     let p = project()
         .file(
@@ -855,7 +854,7 @@ information about transitioning to the 2018 edition see:
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn fix_overlapping() {
     let p = project()
         .file(
@@ -888,7 +887,7 @@ fn fix_overlapping() {
     assert!(contents.contains("crate::foo::<crate::A>()"));
 }
 
-#[test]
+#[cargo_test]
 fn fix_idioms() {
     let p = project()
         .file(
@@ -923,16 +922,14 @@ fn fix_idioms() {
     assert!(p.read_file("src/lib.rs").contains("Box<dyn Any>"));
 }
 
-#[test]
+#[cargo_test]
 fn idioms_2015_ok() {
     let p = project().file("src/lib.rs", "").build();
 
-    p.cargo("fix --edition-idioms --allow-no-vcs")
-        .masquerade_as_nightly_cargo()
-        .run();
+    p.cargo("fix --edition-idioms --allow-no-vcs").run();
 }
 
-#[test]
+#[cargo_test]
 fn both_edition_migrate_flags() {
     let p = project().file("src/lib.rs", "").build();
 
@@ -951,7 +948,7 @@ For more information try --help
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn shows_warnings_on_second_run_without_changes() {
     let p = project()
         .file(
@@ -976,7 +973,7 @@ fn shows_warnings_on_second_run_without_changes() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn shows_warnings_on_second_run_without_changes_on_multiple_targets() {
     let p = project()
         .file(
@@ -1055,7 +1052,7 @@ fn shows_warnings_on_second_run_without_changes_on_multiple_targets() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn doesnt_rebuild_dependencies() {
     let p = project()
         .file(
@@ -1100,7 +1097,7 @@ fn doesnt_rebuild_dependencies() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn does_not_crash_with_rustc_wrapper() {
     // We don't have /usr/bin/env on Windows.
     if cfg!(windows) {
@@ -1123,7 +1120,7 @@ fn does_not_crash_with_rustc_wrapper() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn only_warn_for_relevant_crates() {
     let p = project()
         .file(
@@ -1169,7 +1166,7 @@ fn only_warn_for_relevant_crates() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn fix_to_broken_code() {
     let p = project()
         .file(
@@ -1242,7 +1239,7 @@ fn fix_to_broken_code() {
     );
 }
 
-#[test]
+#[cargo_test]
 fn fix_with_common() {
     let p = project()
         .file("src/lib.rs", "")
@@ -1262,7 +1259,7 @@ fn fix_with_common() {
     assert_eq!(p.read_file("tests/common/mod.rs"), "pub fn r#try() {}");
 }
 
-#[test]
+#[cargo_test]
 fn fix_in_existing_repo_weird_ignore() {
     // Check that ignore doesn't ignore the repo itself.
     let p = git::new("foo", |project| {
@@ -1283,4 +1280,51 @@ fn fix_in_existing_repo_weird_ignore() {
         .with_status(101)
         .run();
     p.cargo("fix").cwd("src").run();
+}
+
+#[cargo_test]
+fn fix_with_clippy() {
+    if !is_nightly() {
+        // fix --clippy is unstable
+        eprintln!("skipping test: requires nightly");
+        return;
+    }
+
+    if !clippy_is_available() {
+        return;
+    }
+
+    let p = project()
+        .file(
+            "src/lib.rs",
+            "
+                pub fn foo() {
+                    let mut v = Vec::<String>::new();
+                    let _ = v.iter_mut().filter(|&ref a| a.is_empty());
+                }
+    ",
+        )
+        .build();
+
+    let stderr = "\
+[CHECKING] foo v0.0.1 ([..])
+[FIXING] src/lib.rs (1 fix)
+[FINISHED] [..]
+";
+
+    p.cargo("fix -Zunstable-options --clippy --allow-no-vcs")
+        .masquerade_as_nightly_cargo()
+        .with_stderr(stderr)
+        .with_stdout("")
+        .run();
+
+    assert_eq!(
+        p.read_file("src/lib.rs"),
+        "
+                pub fn foo() {
+                    let mut v = Vec::<String>::new();
+                    let _ = v.iter_mut().filter(|a| a.is_empty());
+                }
+    "
+    );
 }

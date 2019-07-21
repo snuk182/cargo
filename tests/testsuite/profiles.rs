@@ -2,7 +2,7 @@ use std::env;
 
 use crate::support::project;
 
-#[test]
+#[cargo_test]
 fn profile_overrides() {
     let p = project()
         .file(
@@ -27,7 +27,7 @@ fn profile_overrides() {
             "\
 [COMPILING] test v0.0.0 ([CWD])
 [RUNNING] `rustc --crate-name test src/lib.rs --color never --crate-type lib \
-        --emit=dep-info,link \
+        --emit=[..]link \
         -C opt-level=1 \
         -C debug-assertions=on \
         -C metadata=[..] \
@@ -40,7 +40,7 @@ fn profile_overrides() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn opt_level_override_0() {
     let p = project()
         .file(
@@ -63,7 +63,7 @@ fn opt_level_override_0() {
             "\
 [COMPILING] test v0.0.0 ([CWD])
 [RUNNING] `rustc --crate-name test src/lib.rs --color never --crate-type lib \
-        --emit=dep-info,link \
+        --emit=[..]link \
         -C debuginfo=2 \
         -C metadata=[..] \
         --out-dir [..] \
@@ -74,7 +74,7 @@ fn opt_level_override_0() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn debug_override_1() {
     let p = project()
         .file(
@@ -96,7 +96,7 @@ fn debug_override_1() {
             "\
 [COMPILING] test v0.0.0 ([CWD])
 [RUNNING] `rustc --crate-name test src/lib.rs --color never --crate-type lib \
-        --emit=dep-info,link \
+        --emit=[..]link \
         -C debuginfo=1 \
         -C metadata=[..] \
         --out-dir [..] \
@@ -132,7 +132,7 @@ fn check_opt_level_override(profile_level: &str, rustc_level: &str) {
             "\
 [COMPILING] test v0.0.0 ([CWD])
 [RUNNING] `rustc --crate-name test src/lib.rs --color never --crate-type lib \
-        --emit=dep-info,link \
+        --emit=[..]link \
         -C opt-level={level} \
         -C debuginfo=2 \
         -C debug-assertions=on \
@@ -146,7 +146,7 @@ fn check_opt_level_override(profile_level: &str, rustc_level: &str) {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn opt_level_overrides() {
     for &(profile_level, rustc_level) in &[
         ("1", "1"),
@@ -159,7 +159,7 @@ fn opt_level_overrides() {
     }
 }
 
-#[test]
+#[cargo_test]
 fn top_level_overrides_deps() {
     let p = project()
         .file(
@@ -206,7 +206,7 @@ fn top_level_overrides_deps() {
 [COMPILING] foo v0.0.0 ([CWD]/foo)
 [RUNNING] `rustc --crate-name foo foo/src/lib.rs --color never \
         --crate-type dylib --crate-type rlib \
-        --emit=dep-info,link \
+        --emit=[..]link \
         -C prefer-dynamic \
         -C opt-level=1 \
         -C debuginfo=2 \
@@ -215,7 +215,7 @@ fn top_level_overrides_deps() {
         -L dependency=[CWD]/target/release/deps`
 [COMPILING] test v0.0.0 ([CWD])
 [RUNNING] `rustc --crate-name test src/lib.rs --color never --crate-type lib \
-        --emit=dep-info,link \
+        --emit=[..]link \
         -C opt-level=1 \
         -C debuginfo=2 \
         -C metadata=[..] \
@@ -232,7 +232,7 @@ fn top_level_overrides_deps() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_in_non_root_manifest_triggers_a_warning() {
     let p = project()
         .file(
@@ -281,7 +281,7 @@ workspace: [..]
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_in_virtual_manifest_works() {
     let p = project()
         .file(
@@ -320,7 +320,7 @@ fn profile_in_virtual_manifest_works() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_panic_test_bench() {
     let p = project()
         .file(
@@ -350,7 +350,7 @@ fn profile_panic_test_bench() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn profile_doc_deprecated() {
     let p = project()
         .file(
@@ -372,7 +372,7 @@ fn profile_doc_deprecated() {
         .run();
 }
 
-#[test]
+#[cargo_test]
 fn panic_unwind_does_not_build_twice() {
     // Check for a bug where `lib` was built twice, once with panic set and
     // once without. Since "unwind" is the default, they are the same and
@@ -404,6 +404,35 @@ fn panic_unwind_does_not_build_twice() {
 [RUNNING] `rustc --crate-name foo src/main.rs [..] --test [..]
 [RUNNING] `rustc --crate-name t1 tests/t1.rs [..]
 [FINISHED] [..]
+",
+        )
+        .run();
+}
+
+#[cargo_test]
+fn debug_0_report() {
+    // The finished line handles 0 correctly.
+    let p = project()
+        .file(
+            "Cargo.toml",
+            r#"
+            [package]
+            name = "foo"
+            version = "0.1.0"
+
+            [profile.dev]
+            debug = 0
+            "#,
+        )
+        .file("src/lib.rs", "")
+        .build();
+
+    p.cargo("build -v")
+        .with_stderr(
+            "\
+[COMPILING] foo v0.1.0 [..]
+[RUNNING] `rustc --crate-name foo src/lib.rs [..]-C debuginfo=0 [..]
+[FINISHED] dev [unoptimized] target(s) in [..]
 ",
         )
         .run();

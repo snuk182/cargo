@@ -1,3 +1,4 @@
+use std::ffi::{OsStr, OsString};
 use std::fs;
 use std::path::PathBuf;
 
@@ -99,7 +100,9 @@ pub trait AppExt: Sized {
 
     fn arg_features(self) -> Self {
         self._arg(
-            opt("features", "Space-separated list of features to activate").value_name("FEATURES"),
+            opt("features", "Space-separated list of features to activate")
+                .multiple(true)
+                .value_name("FEATURES"),
         )
         ._arg(opt("all-features", "Activate all available features"))
         ._arg(opt(
@@ -151,8 +154,7 @@ pub trait AppExt: Sized {
         self._arg(
             opt(
                 "vcs",
-                "\
-                 Initialize a new repository for the given version \
+                "Initialize a new repository for the given version \
                  control system (git, hg, pijul, or fossil) or do not \
                  initialize any version control at all (none), overriding \
                  a global configuration.",
@@ -463,6 +465,10 @@ about this warning.";
 
     fn _values_of(&self, name: &str) -> Vec<String>;
 
+    fn _value_of_os(&self, name: &str) -> Option<&OsStr>;
+
+    fn _values_of_os(&self, name: &str) -> Vec<OsString>;
+
     fn _is_present(&self, name: &str) -> bool;
 }
 
@@ -471,10 +477,21 @@ impl<'a> ArgMatchesExt for ArgMatches<'a> {
         self.value_of(name)
     }
 
+    fn _value_of_os(&self, name: &str) -> Option<&OsStr> {
+        self.value_of_os(name)
+    }
+
     fn _values_of(&self, name: &str) -> Vec<String> {
         self.values_of(name)
             .unwrap_or_default()
             .map(|s| s.to_string())
+            .collect()
+    }
+
+    fn _values_of_os(&self, name: &str) -> Vec<OsString> {
+        self.values_of_os(name)
+            .unwrap_or_default()
+            .map(|s| s.to_os_string())
             .collect()
     }
 
@@ -487,6 +504,10 @@ pub fn values(args: &ArgMatches<'_>, name: &str) -> Vec<String> {
     args._values_of(name)
 }
 
+pub fn values_os(args: &ArgMatches<'_>, name: &str) -> Vec<OsString> {
+    args._values_of_os(name)
+}
+
 #[derive(PartialEq, PartialOrd, Eq, Ord)]
 pub enum CommandInfo {
     BuiltIn { name: String, about: Option<String> },
@@ -494,10 +515,10 @@ pub enum CommandInfo {
 }
 
 impl CommandInfo {
-    pub fn name(&self) -> String {
+    pub fn name(&self) -> &str {
         match self {
-            CommandInfo::BuiltIn { name, .. } => name.to_string(),
-            CommandInfo::External { name, .. } => name.to_string(),
+            CommandInfo::BuiltIn { name, .. } => name,
+            CommandInfo::External { name, .. } => name,
         }
     }
 }
